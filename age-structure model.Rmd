@@ -1,0 +1,82 @@
+---
+title: "age structure"
+author: "ZHE ZHENG"
+date: "7/16/2020"
+output: html_document
+---
+```{r}
+library(deSolve)
+# this is an age structured MSIS model
+############# Model Equations ######################
+
+my_model <- function(times,x,pars){
+  
+  nage <- 2 
+  M    = x[1:nage]
+  S0    = x[(nage+1):(2*nage)]
+  I1    = x[(2*nage+1):(3*nage)]
+  S1    = x[(3*nage+1):(4*nage)]
+  I2    = x[(4*nage+1):(5*nage)]
+  S2    = x[(5*nage+1):(6*nage)]
+  I3    = x[(6*nage+1):(7*nage)]
+  S3    = x[(7*nage+1):(8*nage)]
+  I4    = x[(8*nage+1):(9*nage)]
+  
+  dx <- vector(length=18)
+  
+	for (a in 1:nage) {
+	  
+	  dx[a] <- B[a]-(omega+mu[a])*M[a]
+		dx[a+nage] <- omega*M[a]-lambda[a]*S0[a]-mu[a]*S0[a]
+		dx[a+2*nage] <- lambda[a]*S0[a]- gamma1*I1[a]-mu[a]*I1[a]
+		dx[a+3*nage] <- gamma1*I1[a]-sigma1*lambda[a]*S1[a]-mu[a]*S1[a]
+		dx[a+4*nage] <- sigma1*lambda[a]*S1[a]- gamma2*I2[a]-mu[a]*I2[a]
+		dx[a+5*nage] <- gamma2*I2[a]- sigma2*lambda[a]*S2[a]-mu[a]*S2[a]
+		dx[a+6*nage] <- sigma2*lambda[a]*S2[a]-gamma3*I3[a]-mu[a]*I3[a]
+		dx[a+7*nage] <- gamma3*I3[a]-sigma3*lambda[a]*S3[a]+gamma4*I4[a]-mu[a]*S3[a]
+		dx[a+8*nage] <- sigma3*lambda[a]*S3[a]-gamma4*I4[a]-mu[a]*I4[a]
+	  
+	}
+	
+	return(list(dx))}
+
+##################################################################################
+# set up some initial conditions at time t=0
+##################################################################################
+
+############ Setting Initial Conditions ###############
+
+my_yinit <- c(M=c(200,0),S0 = rep(10000,2), I1 = rep(1,2),S1=rep(1,2),I2=rep(1,2),S2=rep(1,2),I3=rep(1,2),S3=rep(1,2),I4=rep(1,2))
+
+############### Setting Time Frame ####################
+
+start_time = 0 # start date (years)
+end_time = 25 # end date (years)
+my_times <- seq(start_time, end_time, by = 0.25) # gives a sequence from start to end
+											 # in increments of 1
+
+################## Setting Parameters ##################
+
+lambda=c(2.3,1)
+gamma1=1.1
+gamma2=1.2
+gamma3=1.3
+gamma4=1.4
+omega=0.8
+mu=c(0.001,0.01)
+B=c(2,1)
+sigma1=0.9
+sigma2=0.8
+sigma3=0.7
+
+parms<-list(B=B,omega=omega,mu=mu,lambda=lambda, gamma1=gamma1,sigma1=sigma1,gamma2=gamma2,sigma2=sigma2,gamma3=gamma3,sigma3=sigma3,gamma4=gamma4)
+
+############# Running The Model ####################
+
+results <- as.data.frame(ode(y=my_yinit, times=my_times, func=my_model,
+	parms=parms, method='lsoda'))
+
+
+  
+```
+
