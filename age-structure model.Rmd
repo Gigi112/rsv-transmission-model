@@ -23,6 +23,7 @@ my_model <- function(times,x,pars){
   I4    = x[(8*nage+1):(9*nage)]
   
   dx <- vector(length=18)
+  tau <- vector(length = nage)
   
 	for (a in 1:nage) {
 	  
@@ -35,6 +36,12 @@ my_model <- function(times,x,pars){
 		dx[a+6*nage] <- sigma2*lambda[a]*S2[a]-gamma3*I3[a]-mu[a]*I3[a]
 		dx[a+7*nage] <- gamma3*I3[a]-sigma3*lambda[a]*S3[a]+gamma4*I4[a]-mu[a]*S3[a]
 		dx[a+8*nage] <- sigma3*lambda[a]*S3[a]-gamma4*I4[a]-mu[a]*I4[a]
+		
+		for (i in 1:nage) {
+		  tau[i] <- I1[i]+rho1*I2[i]+rho2*I3[i]+rho2*I4[i]
+		}
+		
+		lambda[a] <- beta[a,]%*%tau
 	  
 	}
 	
@@ -57,7 +64,9 @@ my_times <- seq(start_time, end_time, by = 0.25) # gives a sequence from start t
 
 ################## Setting Parameters ##################
 
-lambda=c(2.3,1)
+beta = matrix(data = c(1,2,3,4),nrow = 2)
+rho1 = 0.8
+rho2 = 0.6
 gamma1=1.1
 gamma2=1.2
 gamma3=1.3
@@ -69,7 +78,7 @@ sigma1=0.9
 sigma2=0.8
 sigma3=0.7
 
-parms<-list(B=B,omega=omega,mu=mu,lambda=lambda, gamma1=gamma1,sigma1=sigma1,gamma2=gamma2,sigma2=sigma2,gamma3=gamma3,sigma3=sigma3,gamma4=gamma4)
+parms<-list(B=B,omega=omega,mu=mu,beta=beta,rho1=rho1,rho2=rho2, gamma1=gamma1,sigma1=sigma1,gamma2=gamma2,sigma2=sigma2,gamma3=gamma3,sigma3=sigma3,gamma4=gamma4)
 
 ############# Running The Model ####################
 
