@@ -36,12 +36,25 @@ my_model <- function(times,x,pars){
 		dx[a+6*nage] <- sigma2*lambda[a]*S2[a]-gamma3*I3[a]-mu[a]*I3[a]
 		dx[a+7*nage] <- gamma3*I3[a]-sigma3*lambda[a]*S3[a]+gamma4*I4[a]-mu[a]*S3[a]
 		dx[a+8*nage] <- sigma3*lambda[a]*S3[a]-gamma4*I4[a]-mu[a]*I4[a]
+		mu[a] <- mo[a]+um
 		
 		for (i in 1:nage) {
 		  tau[i] <- I1[i]+rho1*I2[i]+rho2*I3[i]+rho2*I4[i]
 		}
 		
 		lambda[a] <- beta[a,]%*%tau
+		
+		if (a >1 ){
+		dx[a] <- dx[a]+ mo[a-1]*M[a-1]
+		dx[a+nage] <- dx[a+nage] + mo[a-1]*S0[a-1]
+		dx[a+2*nage] <- dx[a+2*nage] + mo[a-1]*I1[a-1]
+		dx[a+3*nage] <-dx[a+3*nage]+mo[a-1]*S1[a-1]
+		dx[a+4*nage] <- dx[a+4*nage]+mo[a-1]*I2[a-1]
+		dx[a+5*nage] <- dx[a+5*nage]+mo[a-1]*S2[a-1]
+		dx[a+6*nage] <- dx[a+6*nage]+mo[a-1]*I3[a-1]
+		dx[a+7*nage] <- dx[a+7*nage]+mo[a-1]*S3[a-1]
+		dx[a+8*nage] <- dx[a+8*nage]+mo[a-1]*I4[a-1]  
+		}
 	  
 	}
 	
