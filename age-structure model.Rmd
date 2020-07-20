@@ -43,6 +43,7 @@ my_model <- function(times,x,pars){
 		}
 		
 		lambda[a] <- beta[a,]%*%tau
+		beta <- (1+b1*cos(2*pi*(t-phi*52.18)/52.18))*beta0
 		
 		if (a >1 ){
 		dx[a] <- dx[a]+ mo[a-1]*M[a-1]
