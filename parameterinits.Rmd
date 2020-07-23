@@ -1,0 +1,38 @@
+---
+title: "parameter inital values"
+author: "ZHE ZHENG"
+date: "7/22/2020"
+output: html_document
+---
+```{r}
+#Age-structured model for RSV -- 1 strain w/ 3 stages of
+#susceptibility, 3 stages of infectiousness, no temporary immunity 
+age=c(seq(0,11/12,1/12), 1:4, 7.5, 15, 30, 50, 70)#Lower bound (or midpoint) of different age groups
+al=length(age) #Number of age groups
+avgage=age#Avg age of people in each age group (roughly)
+agep=c(rep((1/960),12), rep((1/80),4), 1/16, 1/8, 1/4, 1/4, 1/4)#Proportion of population in each age group (approx to start)
+t0=round(52.18*41)#"Burn-in period" to allow model to reach quasi-equilibrium before evaluating output
+s=1#Index of state for which you want to simulate the model 
+Bstate=interp1()#Interpolates weekly values for the crude birth rate in state s from the annual values
+Bstate=c(rep(.015,t0-496),Bstate,rep(cbrUS[nrow(cbrUS),s],260))#Fill in with constant values before/after known values
+N0state=Nst1990[s,1] #population size in 1990 for state s
+tmax=length(Bstate) #length of the simulations
+N=exp(-.0002*t0)*N0state*agep#population size by age group (adjusted for population growth during the burn-in period)
+B=c(Bstate,matrix(0,tmax,al-1))#births by age group (i.e. births only enter the first age group, 0 for all other age groups)
+u=c(rep(1/4.33,12) ,rep(1/52,4), 1/(52*5), 1/520, 1/1040, 1/1040, 1/1040)#rate for aging out of each age class (per person per week)
+um=log(0.993)/52#net rate of crude deaths (+) and immigration (-) from all age groups (per week): can adjust this to approximate population growth in state
+
+#Matrices describing possible mixing among age groups
+c1=100*matrix(1,al,al)#homogeneous mixing
+   # POLYMOD mixing based on self-reported contacts among the following age
+   # groups: (from 2014)
+   # 0-5y  6-12y  13-19y  20-39y  40-59y 60+y  
+c2=
+   # Same but assuming mixing among youngest three age groups reduced by 60%
+   # during school holidays
+c2h
+
+
+
+```
+
