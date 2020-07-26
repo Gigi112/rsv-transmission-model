@@ -11,7 +11,7 @@ library(deSolve)
 
 my_model <- function(times,x,pars){
   
-  nage <- 2 
+  nage <- al 
   M    = x[1:nage]
   S0    = x[(nage+1):(2*nage)]
   I1    = x[(2*nage+1):(3*nage)]

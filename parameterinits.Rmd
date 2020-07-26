@@ -5,6 +5,8 @@ date: "7/22/2020"
 output: html_document
 ---
 ```{r}
+rsvmatdata <- readMat("/Users/zhezheng/Box/aim3/RSVtransmissionmodel/matlabcode/rsvmatdata.mat")
+library(pracma)
 #Age-structured model for RSV -- 1 strain w/ 3 stages of
 #susceptibility, 3 stages of infectiousness, no temporary immunity 
 age=c(seq(0,11/12,1/12), 1:4, 7.5, 15, 30, 50, 70)#Lower bound (or midpoint) of different age groups
@@ -13,9 +15,10 @@ avgage=age#Avg age of people in each age group (roughly)
 agep=c(rep((1/960),12), rep((1/80),4), 1/16, 1/8, 1/4, 1/4, 1/4)#Proportion of population in each age group (approx to start)
 t0=round(52.18*41)#"Burn-in period" to allow model to reach quasi-equilibrium before evaluating output
 s=1#Index of state for which you want to simulate the model 
-Bstate=interp1()#Interpolates weekly values for the crude birth rate in state s from the annual values
-Bstate=c(rep(.015,t0-496),Bstate,rep(cbrUS[nrow(cbrUS),s],260))#Fill in with constant values before/after known values
-N0state=Nst1990[s,1] #population size in 1990 for state s
+#Interpolates weekly values for the crude birth rate in state s from the annual values
+#Bstate=c(rep(.015,t0-496),Bstate,rep(cbrUS[nrow(rsvmatdata$cbrUS),s],260))#Fill in with constant values before/after known values
+Bstate=rsvmatdata$Bstate
+N0state=rsvmatdata$Nst1990[s,1] #population size in 1990 for state s
 tmax=length(Bstate) #length of the simulations
 N=exp(-.0002*t0)*N0state*agep#population size by age group (adjusted for population growth during the burn-in period)
 B=c(Bstate,matrix(0,tmax,al-1))#births by age group (i.e. births only enter the first age group, 0 for all other age groups)
@@ -25,14 +28,131 @@ um=log(0.993)/52#net rate of crude deaths (+) and immigration (-) from all age g
 #Matrices describing possible mixing among age groups
 c1=100*matrix(1,al,al)#homogeneous mixing
    # POLYMOD mixing based on self-reported contacts among the following age
-   # groups: (from 2014)
+   # groups: (from 2017)
    # 0-5y  6-12y  13-19y  20-39y  40-59y 60+y  
-c2=
+c2 <- rsvmatdata$c2
    # Same but assuming mixing among youngest three age groups reduced by 60%
    # during school holidays
-c2h
+c2h <- rsvmatdata$c2h
 
+ptrans=8.9 #probability of transmission given contact (should be roughly equivalent to R0)
+dur=1.43 #duration of infectiousness of primary infection (in weeks; =10 days)
 
+b=ptrans/dur
+
+q=1#use this to switch between density (q=0) vs frequency-dependent (q=1) transmission
+beta=(b/100)/(sum(N0state)^(1-q))*c2#transmission matrix
+betaH=(b/100)/(sum(N0state)^(1-q))*c2h#school-holiday transmission matrix
+b1=.25#amplitude of seasonality in transmission rate
+phi=0#seasonal offset
+school=rep(1,tmax)#vector that =1 if school week, =0 if holiday
+
+for (i in 1:tmax){
+    if (rem(i,52)<1)
+        {school[i]=0}
+    else if (rem(i,52)>=23 && rem(i,52)<35)
+        {school[i]=0}
+    else (rem(i,52)>=51)
+  {school[i]=0}}
+
+rr1=0.76#relative risk of second infection 
+rr2=0.6#relative risk of third infection 
+rr3=0.4#relative risk of subsequent infection
+ri2=.75#relative infectiousness of secondary infection
+ri3=.51#relative infectiousness of asymptomatic infection (estimated previously)
+
+d1=1/dur#rate of recovery from primary infection (per week)
+d2=1.43*d1#rate of recovery from secondary infection (per week)
+d3=2*d1#rate of recovery from subsequent infection (per week)
+
+wm=1/16#rate of waning maternal immunity (avg duration of immunity = 3mo) 
+
+delta1=c(rep(.50,6), rep(.30,6),rep(.20,4),rep(0.1,al-16))#proportion of first infections that are symptomatic (by age)
+delta2=.75*delta1#proportion of second infectious that are symptomatic 
+delta3=c(rep(.2,16), rep(0,al-16))#proportion of third infections that are symptomatic
+hosp1=.5*.08*delta1#proportion of first infections that are hospitalized
+hosp2=.5*.08*delta2#proportion of second infections that are hospitalized
+hosp3=rep(0,al)#proportion of third infections that are hospitalized
+hosp4=rep(0,al)#proportion of fourth+ infections that are hospitalized
+
+#R0=max(eig((1/d1)*beta*(rep(1,al)%*%N)/(sum(N)^q)))#R0=max eigenvalue of the next generation matrix/ dimension not correct in matlab code
+
+#Initialize a vector to keep track of the number of people in each state
+St0=c()
+St0[1:al]=c(N[1:6], rep(0,al-6))#Maternal immunity
+St0[(al+1):(2*al)]=c(rep(0,6),N[7:al]-rep(1,al-6))#Susceptible_0
+St0[(2*al+1):(3*al)]=c(rep(0,6), rep(1,al-6))#Infectious_1 (primary) 
+St0[(3*al+1):(4*al)]=rep(0,al)#Susceptible_1
+St0[(4*al+1):(5*al)]=rep(0,al)#Infectious_2 (2nd time)
+St0[(5*al+1):(6*al)]=rep(0,al)#Susceptible_2
+St0[(6*al+1):(7*al)]=rep(0,al)#Infectious_3
+St0[(7*al+1):(8*al)]=rep(0,al)#Susceptible_3+
+St0[(8*al+1):(9*al)]=rep(0,al)#Infectious_A 
+
+posfun <- function(t, y, parms){
+    with(as.list(y), {
+      y[which(y<0)] <- 0  
+      return(y)
+    })
+}
+#function for evaluating differential eqns; this says we aren't allowed to have negative values
+out <- as.data.frame(ode(y=St0, times=1:tmax, func=my_model,
+	parms=parms,events=list(func = posfun, time = c(1:tmax)), method='lsoda'))
+
+#Discard the burn-in period
+# times[1:t0] <- c()
+# St[1:t0] <- c()
+
+#Initialize matrices to keep track of the outcomes of interest
+lambda=matrix(0,nrow=tmax-t0,ncol=al)#Force of infection
+Pop=matrix(0,nrow=tmax-t0,ncol=al)#Total population size of each age group
+C=matrix(0,nrow=tmax-t0,ncol=al)#Number of symptomatic cases by age
+H=matrix(0,nrow=tmax-t0,ncol=al)#Number of hospitalizations by age
+Prev=matrix(0,nrow=tmax-t0,ncol=al)#Prevalence of infection by age
+Incid=matrix(0,nrow=tmax-t0,ncol=al)#Incidence of infection by age
+
+for (t in 1:length(St))
+    {lambda[t] <- lambda[a] <- beta[a,]%*%tau
+		beta <- (1+b1*cos(2*pi*(t-phi*52.18)/52.18))*beta0}
+    #lambda(t,:)=(1+b1*cos(2*pi*(time(t)-phi*52.18)/52.18))*((St(t,2*al+1:3*al)+ri2*St(t,4*al+1:5*al)+ri3*St(t,6*al+1:7*al)+ri3*St(t,8*al+1:9*al))*(beta*school(round(time(t)))+betaH*(1-school(round(time(t))))))/(sum(St(t,:))^q)
+
+for (i in 1:9) #sum across the 9 different infection states of the model
+{Pop=Pop+x[al*(i-1)+1:al*i]}
+
+#Other outcomes of interest
+for (i in 1:al){
+  
+    C[i] <- delta1[i]*x[,(al+i)]*lambda[i]+delta2[i]*rr1*x[,(3*al+i)]*lambda[i]+delta3[i]*rr2*x[,(5*al+i)]*lambda[i]+delta3[i]*rr3*x[,(7*al+i)]*lambda[i]
+    
+    H[i]=hosp1[i]*x[,(al+i)]*lambda[i]+hosp2[i]*rr1*x[,(3*al+i)]*lambda[i]+hosp3[i]*rr2*x[,(5*al+i)]*lambda[i]+hosp4[i]*rr3*x[,(7*al+i)]*lambda[i]
+    
+    Incid[i]=x[,(al+i)]*lambda[i]+rr1*x[,(3*al+i)]*lambda[i]+rr2*x[,(5*al+i)]*lambda[i]+rr3*x[,(7*al+i)]*lambda[i]
+                                                                                                                            
+    Prev[i]=x[,(2*al+i)]+x[,(4*al+i)]+x[,(6*al+i)]+x[,(8*al+i)]}
+
+#Age distribution of hospitalized cases
+A=(H/(rowSums(H)%*%t(rep(1,al))))*avgage #Average age of cases (by week)
+agedata <- matrix(0,nrow =1225 ,ncol =5 )
+agedata[,1] <- rowSums(H[, 1:12])
+agedata[,2:5] <- H[, 13:16]
+agedist=colSums(agedata)/sum(colSums(H[,1:16])) #Summary age distribution of hospitalized cases
+
+#Age distribution of population
+x <- matrix(0,nrow=3364,ncol = 189)
+popagedist=colMeans(x[,1:al]+x[,(al+1):(2*al)]+x[,(2*al+1):(3*al)]+x[,(3*al+1):(4*al)]+x[,(4*al+1):(5*al)]+x[,(5*al+1):(6*al)]+x[,(6*al+1):(7*al)]+x[,(7*al+1):(8*al)]+x[,(8*al+1):(9*al)])/(mean(rowSums(x)))
+
+popagedist=c(sum(popagedist[1:16]), sum(popagedist[17:18]),popagedist[19:al])#Aggregated into <5y, 5-20y, 20-40y, 40-60y, 60+y
+
+#Week of peak RSV cases in each year
+peak=rep(0,length(H))#=1 if number of cases is greater than week before and after, =0 otherwise
+for (i in 2:length(H)-1){
+    if (sum(H[i,])>sum(H[i-1,]) & sum(H[i,])>sum(H[i+1,]))
+    {peak[i,1]=1}}
+
+#ploc=rem(which(peak==1),52)#Week of peak activity = remainder when you divide the indices of where peak > 0 by 52
+
+# plot 'Number of hospitalizations' by year vs 'Proportion of cases' by age
+# plot the population size (by years) and age distribution
 
 ```
 
