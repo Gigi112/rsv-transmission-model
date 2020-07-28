@@ -21,7 +21,7 @@ Bstate=rsvmatdata$Bstate
 N0state=rsvmatdata$Nst1990[s,1] #population size in 1990 for state s
 tmax=length(Bstate) #length of the simulations
 N=exp(-.0002*t0)*N0state*agep#population size by age group (adjusted for population growth during the burn-in period)
-B=c(Bstate,matrix(0,tmax,al-1))#births by age group (i.e. births only enter the first age group, 0 for all other age groups)
+B=cbind(Bstate,matrix(0,tmax,al-1))#births by age group (i.e. births only enter the first age group, 0 for all other age groups)
 u=c(rep(1/4.33,12) ,rep(1/52,4), 1/(52*5), 1/520, 1/1040, 1/1040, 1/1040)#rate for aging out of each age class (per person per week)
 um=log(0.993)/52#net rate of crude deaths (+) and immigration (-) from all age groups (per week): can adjust this to approximate population growth in state
 
@@ -111,24 +111,22 @@ H=matrix(0,nrow=tmax-t0,ncol=al)#Number of hospitalizations by age
 Prev=matrix(0,nrow=tmax-t0,ncol=al)#Prevalence of infection by age
 Incid=matrix(0,nrow=tmax-t0,ncol=al)#Incidence of infection by age
 
-for (t in 1:length(St))
-    {lambda[t] <- lambda[a] <- beta[a,]%*%tau
-		beta <- (1+b1*cos(2*pi*(t-phi*52.18)/52.18))*beta0}
+for (t in 1:1225)
+    {lambda[t,] <- as.vector((1+b1*cos(2*pi*(tmax-phi*52.18)/52.18))*((St[t,(2*al+1):(3*al)]+rho1*St[t,(4*al+1):(5*al)]+rho2*St[t,(6*al+1):(7*al)]+rho2*St[t,(8*al+1):(9*al)])%*%beta)/sum(St[t,]))}
     #lambda(t,:)=(1+b1*cos(2*pi*(time(t)-phi*52.18)/52.18))*((St(t,2*al+1:3*al)+ri2*St(t,4*al+1:5*al)+ri3*St(t,6*al+1:7*al)+ri3*St(t,8*al+1:9*al))*(beta*school(round(time(t)))+betaH*(1-school(round(time(t))))))/(sum(St(t,:))^q)
 
 for (i in 1:9) #sum across the 9 different infection states of the model
-{Pop=Pop+x[al*(i-1)+1:al*i]}
+{Pop <- Pop+St[,(al*(i-1)+1):(al*i)]}
 
 #Other outcomes of interest
 for (i in 1:al){
-  
-    C[i] <- delta1[i]*x[,(al+i)]*lambda[i]+delta2[i]*rr1*x[,(3*al+i)]*lambda[i]+delta3[i]*rr2*x[,(5*al+i)]*lambda[i]+delta3[i]*rr3*x[,(7*al+i)]*lambda[i]
+    C[,i] <- delta1[i]*St[,(al+i)]*lambda[,i]+delta2[i]*rr1*St[,(3*al+i)]*lambda[,i]+delta3[i]*rr2*St[,(5*al+i)]*lambda[,i]+delta3[i]*rr3*St[,(7*al+i)]*lambda[,i]
     
-    H[i]=hosp1[i]*x[,(al+i)]*lambda[i]+hosp2[i]*rr1*x[,(3*al+i)]*lambda[i]+hosp3[i]*rr2*x[,(5*al+i)]*lambda[i]+hosp4[i]*rr3*x[,(7*al+i)]*lambda[i]
+    H[,i]=hosp1[i]*St[,(al+i)]*lambda[,i]+hosp2[i]*rr1*St[,(3*al+i)]*lambda[,i]+hosp3[i]*rr2*St[,(5*al+i)]*lambda[,i]+hosp4[i]*rr3*St[,(7*al+i)]*lambda[,i]
     
-    Incid[i]=x[,(al+i)]*lambda[i]+rr1*x[,(3*al+i)]*lambda[i]+rr2*x[,(5*al+i)]*lambda[i]+rr3*x[,(7*al+i)]*lambda[i]
-                                                                                                                            
-    Prev[i]=x[,(2*al+i)]+x[,(4*al+i)]+x[,(6*al+i)]+x[,(8*al+i)]}
+    Incid[,i]=St[,(al+i)]*lambda[,i]+rr1*St[,(3*al+i)]*lambda[,i]+rr2*St[,(5*al+i)]*lambda[,i]+rr3*St[,(7*al+i)]*lambda[,i]
+    
+    Prev[,i]=St[,(2*al+i)]+St[,(4*al+i)]+St[,(6*al+i)]+St[,(8*al+i)]}
 
 #Age distribution of hospitalized cases
 A=(H/(rowSums(H)%*%t(rep(1,al))))*avgage #Average age of cases (by week)
@@ -136,12 +134,16 @@ agedata <- matrix(0,nrow =1225 ,ncol =5 )
 agedata[,1] <- rowSums(H[, 1:12])
 agedata[,2:5] <- H[, 13:16]
 agedist=colSums(agedata)/sum(colSums(H[,1:16])) #Summary age distribution of hospitalized cases
-
+agedist <- t(matrix(agedist))
+colnames(agedist) <- c("<1yr","1yr","2yr","3yr","4yr")
 #Age distribution of population
-x <- matrix(0,nrow=3364,ncol = 189)
-popagedist=colMeans(x[,1:al]+x[,(al+1):(2*al)]+x[,(2*al+1):(3*al)]+x[,(3*al+1):(4*al)]+x[,(4*al+1):(5*al)]+x[,(5*al+1):(6*al)]+x[,(6*al+1):(7*al)]+x[,(7*al+1):(8*al)]+x[,(8*al+1):(9*al)])/(mean(rowSums(x)))
+#St <- matriSt(0,nrow=3364,ncol = 189)
+popagedist=colMeans(St[,1:al]+St[,(al+1):(2*al)]+St[,(2*al+1):(3*al)]+St[,(3*al+1):(4*al)]+St[,(4*al+1):(5*al)]+St[,(5*al+1):(6*al)]+St[,(6*al+1):(7*al)]+St[,(7*al+1):(8*al)]+St[,(8*al+1):(9*al)])/(mean(rowSums(St)))
 
 popagedist=c(sum(popagedist[1:16]), sum(popagedist[17:18]),popagedist[19:al])#Aggregated into <5y, 5-20y, 20-40y, 40-60y, 60+y
+popagedist <- t(matrix(popagedist))
+colnames(popagedist) <- c("0-5","5-15","20-40","40-60","60+")
+
 
 #Week of peak RSV cases in each year
 peak=rep(0,length(H))#=1 if number of cases is greater than week before and after, =0 otherwise
@@ -151,8 +153,16 @@ for (i in 2:length(H)-1){
 
 #ploc=rem(which(peak==1),52)#Week of peak activity = remainder when you divide the indices of where peak > 0 by 52
 
+par(mfrow=c(2,2))
 # plot 'Number of hospitalizations' by year vs 'Proportion of cases' by age
+plot(x=1:1225,y=rowSums(H),type="l",xlab="date",ylab="#hospitalizations",main='Number of hospitalizations')
+
+barplot(agedist, main="proportion of hospitalization by age")
+
+barplot(popagedist, main="proportion of cases by age")
+
 # plot the population size (by years) and age distribution
+plot(x=1:1225,y=rowSums(Pop),type="l",xlab="date",ylab="population size",main='Population Size')
 
 ```
 
