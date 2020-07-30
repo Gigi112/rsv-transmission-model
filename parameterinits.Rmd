@@ -6,6 +6,8 @@ output: html_document
 ---
 ```{r}
 rsvmatdata <- readMat("/Users/zhezheng/Box/aim3/RSVtransmissionmodel/matlabcode/rsvmatdata.mat")
+lambda <- readMat("/Users/zhezheng/Box/aim3/RSVtransmissionmodel/matlabcode/lambda.mat")
+lambda <- as.matrix(lambda[[1]])
 library(pracma)
 #Age-structured model for RSV -- 1 strain w/ 3 stages of
 #susceptibility, 3 stages of infectiousness, no temporary immunity 
@@ -28,7 +30,7 @@ um=log(0.993)/52#net rate of crude deaths (+) and immigration (-) from all age g
 #Matrices describing possible mixing among age groups
 c1=100*matrix(1,al,al)#homogeneous mixing
    # POLYMOD mixing based on self-reported contacts among the following age
-   # groups: (from 2017)
+   # groups: (from 2017) need to update contact matrix, because the contact pattern in Netherland is very different than that of the U.S.
    # 0-5y  6-12y  13-19y  20-39y  40-59y 60+y  
 c2 <- rsvmatdata$c2
    # Same but assuming mixing among youngest three age groups reduced by 60%
@@ -96,8 +98,8 @@ posfun <- function(t, y, parms){
     })
 }
 #function for evaluating differential eqns; this says we aren't allowed to have negative values
-out <- as.data.frame(ode(y=St0, times=1:tmax, func=my_model,
-	parms=parms,events=list(func = posfun, time = c(1:tmax)), method='lsoda'))
+# out <- as.data.frame(ode(y=St0, times=1:tmax, func=my_model,
+# 	parms=parms,events=list(func = posfun, time = c(1:tmax)), method='lsoda'))
 
 #Discard the burn-in period
 # times[1:t0] <- c()
@@ -112,7 +114,7 @@ Prev=matrix(0,nrow=tmax-t0,ncol=al)#Prevalence of infection by age
 Incid=matrix(0,nrow=tmax-t0,ncol=al)#Incidence of infection by age
 
 for (t in 1:1225)
-    {lambda[t,] <- as.vector((1+b1*cos(2*pi*(tmax-phi*52.18)/52.18))*((St[t,(2*al+1):(3*al)]+rho1*St[t,(4*al+1):(5*al)]+rho2*St[t,(6*al+1):(7*al)]+rho2*St[t,(8*al+1):(9*al)])%*%beta)/sum(St[t,]))}
+    {lambda[t,] <- as.vector((1+b1*cos(2*pi*(t-phi*52.18)/52.18))*((St[t,(2*al+1):(3*al)]+rho1*St[t,(4*al+1):(5*al)]+rho2*St[t,(6*al+1):(7*al)]+rho2*St[t,(8*al+1):(9*al)])%*%beta)/sum(St[t,]))}
     #lambda(t,:)=(1+b1*cos(2*pi*(time(t)-phi*52.18)/52.18))*((St(t,2*al+1:3*al)+ri2*St(t,4*al+1:5*al)+ri3*St(t,6*al+1:7*al)+ri3*St(t,8*al+1:9*al))*(beta*school(round(time(t)))+betaH*(1-school(round(time(t))))))/(sum(St(t,:))^q)
 
 for (i in 1:9) #sum across the 9 different infection states of the model
@@ -146,10 +148,10 @@ colnames(popagedist) <- c("0-5","5-15","20-40","40-60","60+")
 
 
 #Week of peak RSV cases in each year
-peak=rep(0,length(H))#=1 if number of cases is greater than week before and after, =0 otherwise
-for (i in 2:length(H)-1){
-    if (sum(H[i,])>sum(H[i-1,]) & sum(H[i,])>sum(H[i+1,]))
-    {peak[i,1]=1}}
+# peak=rep(0,length(H))#=1 if number of cases is greater than week before and after, =0 otherwise
+# for (i in 2:length(H)-1){
+#     if (sum(H[i,])>sum(H[i-1,]) & sum(H[i,])>sum(H[i+1,]))
+#     {peak[i,1]=1}}
 
 #ploc=rem(which(peak==1),52)#Week of peak activity = remainder when you divide the indices of where peak > 0 by 52
 

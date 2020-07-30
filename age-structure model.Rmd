@@ -23,38 +23,38 @@ my_model <- function(times,x,pars){
   I4    = x[(8*nage+1):(9*nage)]
   
   dx <- rep(0,9*al)
-  tau <- vector(length = nage)
-  lamda=(1+b1*cos(2*pi*(times-phi*52.18)/52.18))*beta%*%(x[(2*al+1):(3*al)]+rho1*x[(4*al+1):(5*al)]+rho2*x[(6*al+1):(7*al)]+rho2*x[(8*al+1):(9*al)])/sum(x)
+  #tau <- vector(length = nage)
+  lambda=(1+b1*cos(2*pi*(times-phi*52.18)/52.18))%*%t(x[(2*al+1):(3*al)]+rho1*x[(4*al+1):(5*al)]+rho2*x[(6*al+1):(7*al)]+rho2*x[(8*al+1):(9*al)])%*%beta/sum(x)
   
 	for (a in 1:nage) {
 	  
-	  dx[a] <- log(B[times,a]+1)/52*sum(x)-(omega+mu[a])*M[a]
-		dx[a+nage] <- omega*M[a]-lambda[a]*S0[a]-mu[a]*S0[a]
-		dx[a+2*nage] <- lambda[a]*S0[a]- gamma1*I1[a]-mu[a]*I1[a]
-		dx[a+3*nage] <- gamma1*I1[a]-sigma1*lambda[a]*S1[a]-mu[a]*S1[a]
-		dx[a+4*nage] <- sigma1*lambda[a]*S1[a]- gamma1*I2[a]-mu[a]*I2[a]
-		dx[a+5*nage] <- gamma1*I2[a]- sigma2*lambda[a]*S2[a]-mu[a]*S2[a]
-		dx[a+6*nage] <- sigma2*lambda[a]*S2[a]-gamma2*I3[a]-mu[a]*I3[a]
-		dx[a+7*nage] <- gamma2*I3[a]-sigma3*lambda[a]*S3[a]+gamma3*I4[a]-mu[a]*S3[a]
-		dx[a+8*nage] <- sigma3*lambda[a]*S3[a]-gamma3*I4[a]-mu[a]*I4[a]
+	  dx[a] <- log(B[times,a]+1)/52*sum(x)-(omega+(u[a]+um))*M[a] #dM/dt
+		dx[a+nage] <- omega*M[a]-sum(lambda[,a])*S0[a]-(u[a]+um)*S0[a] #dS0/dt
+		dx[a+2*nage] <- sum(lambda[,a])*S0[a]- gamma1*I1[a]-(u[a]+um)*I1[a] #dI1/dt
+		dx[a+3*nage] <- gamma1*I1[a]-sigma1*sum(lambda[,a])*S1[a]-(u[a]+um)*S1[a] #dS1/dt
+		dx[a+4*nage] <- sigma1*sum(lambda[,a])*S1[a]- gamma1*I2[a]-(u[a]+um)*I2[a] #dI2/dt
+		dx[a+5*nage] <- gamma1*I2[a]- sigma2*sum(lambda[,a])*S2[a]-(u[a]+um)*S2[a] #dS2/dt
+		dx[a+6*nage] <- sigma2*sum(lambda[,a])*S2[a]-gamma2*I3[a]-(u[a]+um)*I3[a] #dI3/dt
+		dx[a+7*nage] <- gamma2*I3[a]-sigma3*sum(lambda[,a])*S3[a]+gamma3*I4[a]-(u[a]+um)*S3[a] #dS3/dt
+		dx[a+8*nage] <- sigma3*sum(lambda[,a])*S3[a]-gamma3*I4[a]-(u[a]+um)*I4[a] #dI4/dt
 		
-		for (i in 1:nage) {
-		  tau[i] <- I1[i]+rho1*I2[i]+rho2*I3[i]+rho2*I4[i]
-		}
+		# for (i in 1:nage) {
+		#   tau[i] <- I1[i]+rho1*I2[i]+rho2*I3[i]+rho2*I4[i]
+		# }
 
 		# lambda[a] <- beta[a,]%*%tau
 		# beta <- (1+b1*cos(2*pi*(times-phi*52.18)/52.18))*beta0
 
 		if (a >1 ){
-		dx[a] <- dx[a]+ mo[a-1]*M[a-1]
-		dx[a+nage] <- dx[a+nage] + mo[a-1]*S0[a-1]
-		dx[a+2*nage] <- dx[a+2*nage] + mo[a-1]*I1[a-1]
-		dx[a+3*nage] <-dx[a+3*nage]+mo[a-1]*S1[a-1]
-		dx[a+4*nage] <- dx[a+4*nage]+mo[a-1]*I2[a-1]
-		dx[a+5*nage] <- dx[a+5*nage]+mo[a-1]*S2[a-1]
-		dx[a+6*nage] <- dx[a+6*nage]+mo[a-1]*I3[a-1]
-		dx[a+7*nage] <- dx[a+7*nage]+mo[a-1]*S3[a-1]
-		dx[a+8*nage] <- dx[a+8*nage]+mo[a-1]*I4[a-1]
+		dx[a] <- dx[a]+ u[a-1]*M[a-1]
+		dx[a+nage] <- dx[a+nage] + u[a-1]*S0[a-1]
+		dx[a+2*nage] <- dx[a+2*nage] + u[a-1]*I1[a-1]
+		dx[a+3*nage] <-dx[a+3*nage]+u[a-1]*S1[a-1]
+		dx[a+4*nage] <- dx[a+4*nage]+u[a-1]*I2[a-1]
+		dx[a+5*nage] <- dx[a+5*nage]+u[a-1]*S2[a-1]
+		dx[a+6*nage] <- dx[a+6*nage]+u[a-1]*I3[a-1]
+		dx[a+7*nage] <- dx[a+7*nage]+u[a-1]*S3[a-1]
+		dx[a+8*nage] <- dx[a+8*nage]+u[a-1]*I4[a-1]
 		}
 	  
 	}
@@ -71,8 +71,8 @@ my_yinit <- St0
 #x <- St0
 ############### Setting Time Frame ####################
 
-start_time = 1 # start date (years)
-end_time = 25 # end date (years)
+# start_time = 1 # start date (years)
+# end_time = 25 # end date (years)
 my_times <- seq(start_time, tmax, by = 1) # gives a sequence from start to end
 											 # in increments of 1
 
@@ -87,20 +87,19 @@ gamma1=d1
 gamma2=d2
 gamma3=d3
 omega=wm
-mo=u
+u=u
 um=um
-mu=mo+um
 B=B
 sigma1=rr1
 sigma2=rr2
 sigma3=rr3
+#lambda1=rsvmatdata$lambda
 
-parms<-list(B=B,omega=omega,mu=mu,beta=beta,b1=b1,phi=phi,rho1=rho1,rho2=rho2, gamma1=gamma1,sigma1=sigma1,gamma2=gamma2,sigma2=sigma2,gamma3=gamma3,sigma3=sigma3)
+parms<-list(B=B,omega=omega,u=u,um=um,beta=beta,b1=b1,phi=phi,rho1=rho1,rho2=rho2, gamma1=gamma1,sigma1=sigma1,gamma2=gamma2,sigma2=sigma2,gamma3=gamma3,sigma3=sigma3)
 
 ############# Running The Model ####################
 
-results <- as.data.frame(ode(y=my_yinit, times=my_times, func=my_model,
-	parms=parms, method='lsoda'))
+results <- as.data.frame(ode(y=St0, times=my_times, func=my_model,events=list(func = posfun, time = c(1:tmax)),parms=parms, method='lsoda'))
 
 St <- results[,-1]
 St <- tail(St,1225)
