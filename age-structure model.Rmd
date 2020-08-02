@@ -23,7 +23,7 @@ my_model <- function(times,x,pars){
   I4    = x[(8*nage+1):(9*nage)]
   
   dx <- rep(0,9*al)
-  #tau <- vector(length = nage)
+
   lambda=(1+b1*cos(2*pi*(times-phi*52.18)/52.18))%*%t(x[(2*al+1):(3*al)]+rho1*x[(4*al+1):(5*al)]+rho2*x[(6*al+1):(7*al)]+rho2*x[(8*al+1):(9*al)])%*%beta/sum(x)
   
 	for (a in 1:nage) {
@@ -38,13 +38,6 @@ my_model <- function(times,x,pars){
 		dx[a+7*nage] <- gamma2*I3[a]-sigma3*sum(lambda[,a])*S3[a]+gamma3*I4[a]-(u[a]+um)*S3[a] #dS3/dt
 		dx[a+8*nage] <- sigma3*sum(lambda[,a])*S3[a]-gamma3*I4[a]-(u[a]+um)*I4[a] #dI4/dt
 		
-		# for (i in 1:nage) {
-		#   tau[i] <- I1[i]+rho1*I2[i]+rho2*I3[i]+rho2*I4[i]
-		# }
-
-		# lambda[a] <- beta[a,]%*%tau
-		# beta <- (1+b1*cos(2*pi*(times-phi*52.18)/52.18))*beta0
-
 		if (a >1 ){
 		dx[a] <- dx[a]+ u[a-1]*M[a-1]
 		dx[a+nage] <- dx[a+nage] + u[a-1]*S0[a-1]
