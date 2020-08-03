@@ -5,23 +5,32 @@ date: "7/30/2020"
 output: html_document
 ---
 ## new parameters for passive immunization
+###equations
+$$$$
+
+
 ```{r}
-v=1
+v=0.9
 eff=0.784
 omega_v=1/32
 
 #Initialize a vector to keep track of the number of people in each Svate
 Sv0=c()
 Sv0[1:al]=c((N[1:6]*(1-v*eff)), rep(0,al-6))#Maternal immunity
-Sv0[(al+1):(2*al)]=c((N[1:6]*v*eff), rep(0,al-6))#immunoprophylaxis immunity
-Sv0[(2*al+1):(3*al)]=c(rep(0,6),N[7:al]-rep(1,al-6))#Susceptible_0
-Sv0[(3*al+1):(4*al)]=c(rep(0,6),rep(1,al-6))#Infectious_1 (primary) 
+Sv0[(al+1):(2*al)]=c((N[1:12]*v*eff),rep(0,al-12))#immunoprophylaxis immunity
+Sv0[(2*al+1):(3*al)]=c(rep(0,6),N[7:12]*(1-v*eff),N[13:al]-rep(1,al-12))#Susceptible_0
+Sv0[(3*al+1):(4*al)]=c(rep(0,12),rep(1,al-12))#Infectious_1 (primary) 
 Sv0[(4*al+1):(5*al)]=rep(0,al)#Susceptible_1
 Sv0[(5*al+1):(6*al)]=rep(0,al)#Infectious_2 (2nd time)
 Sv0[(6*al+1):(7*al)]=rep(0,al)#Susceptible_2
 Sv0[(7*al+1):(8*al)]=rep(0,al)#Infectious_3
 Sv0[(8*al+1):(9*al)]=rep(0,al)#Susceptible_3+
 Sv0[(9*al+1):(10*al)]=rep(0,al)#Infectious_A 
+
+# Sv0 <- matrix(data=Sv0,nrow=10,ncol=21,byrow = T)
+# colnames(Sv0) <- age
+# rownames(Sv0) <- c("M","Mv","S0","I1","S1","I2","S2","I3","S3","I4")
+
 ```
 
 ## model Svructure for passive immunization
@@ -50,8 +59,8 @@ passive_immune <- function(times,x,pars){
   
 	for (a in 1:nage) {
 	  
-	  dx[a] <- log((1-v*eff)*B[times,a]+1)/52*sum(x)-(omega+(u[a]+um))*M[a] #dM/dt
-		dx[a+nage] <- log(v*eff*B[times,a]+1)/52*sum(x)-(omega_v+(u[a]+um))*Mv[a] #dMv/dt
+	  dx[a] <- (1-v*eff)*log(B[times,a]+1)/52*sum(x)-(omega+(u[a]+um))*M[a] #dM/dt
+		dx[a+nage] <- v*eff*log(B[times,a]+1)/52*sum(x)-(omega_v+(u[a]+um))*Mv[a] #dMv/dt
 		dx[a+2*nage]<- omega*M[a]+omega_v*Mv[a]-sum(lambda[,a])*S0[a]-(u[a]+um)*S0[a] #dS0/dt
 		 dx[a+3*nage]<- sum(lambda[,a])*S0[a]- gamma1*I1[a]-(u[a]+um)*I1[a] #dI1/dt
 		 dx[a+4*nage]<- gamma1*I1[a]-sigma1*sum(lambda[,a])*S1[a]-(u[a]+um)*S1[a] #dS1/dt
@@ -185,5 +194,13 @@ barplot(popagedist, main="proportion of cases by age")
 # plot the population size (by years) and age distribution
 plot(x=1:1225,y=rowSums(Pop),type="l",xlab="date",ylab="population size",main='Population Size')
 
+```
+##comparison (immuned vs non)
+```{r}
+plot(x=1:1225,y=rowSums(C1),type="l",xlab="date",ylab="#cases",main='Number of cases',col="red")
+lines(x=1:1225,y=rowSums(C),col="blue")
+
+plot(x=1:1225,y=rowSums(H1),type="l",xlab="date",ylab="#cases",main='Number of cases',col="red")
+lines(x=1:1225,y=rowSums(H),col="blue")
 ```
 
