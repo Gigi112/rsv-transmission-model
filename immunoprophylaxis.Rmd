@@ -6,14 +6,35 @@ output: html_document
 ---
 ## new parameters for passive immunization
 ###equations
-$$$$
+$$\frac{dM_a}{dt}=(1-V\xi)B_a(t)-(\omega+\mu_a)M_a
+\\
+\frac{dM_{v,a}}{dt}=V\xi B_a(t)-(\omega_v+\mu_a)M_{v,a}
+\\
+\frac{dS_{0,a}}{dt}=\omega_v M_{v,a}+\omega M_a- \lambda_a(t) S_{0,a}-\mu_a S_{0,a}
+\\
+\frac{dI_{1,a}}{dt}=\lambda_a(t) S_{0,a}-\gamma_1 I_{1,a}-\mu_a I_{1,a}
+\\
+\frac{dS_{1,a}}{dt}=\gamma_1 I_{1,a} -\sigma_1 \lambda_a(t) S_{1,a}-\mu_a S_{1,a}
+\\
+\frac{dI_{2,a}}{dt}=\sigma_1 \lambda_a(t) S_{1,a}-\gamma_2 I_{2,a}-\mu_a I_{2,a}
+\\
+\frac{dS_{2,a}}{dt}=\gamma_2 I_{2,a} -\sigma_2 \lambda_a(t) S_{2,a}-\mu_a S_{2,a}
+\\
+\frac{dI_{3,a}}{dt}=\sigma_2 \lambda_a(t) S_{2,a}-\gamma_3 I_{3,a}-\mu_a I_{3,a}
+\\
+\frac{dS_{3,a}}{dt}=\gamma_3 I_{3,a}+\gamma_4 I_{4,a} -\sigma_3 \lambda_a(t) S_{3,a}-\mu_a S_{3,a}
+\\
+\frac{dI_{4,a}}{dt}=\sigma_3 \lambda_a(t) S_{3,a}-\gamma_4 I_{4,a}-\mu_a I_{4,a}$$
+
+where 
+
+$$\lambda_a(t)=(1+b_1 \cos(\frac{2\pi t-\phi}{52.18})) \sum_i \beta_{a,i}(t)(I_{1,i}+\rho_1 I_{2,i}+\rho_2 I_{3,i}+\rho_2 I_{4,i})$$
 
 
 ```{r}
 v=0.9
 eff=0.784
 omega_v=1/32
-
 #Initialize a vector to keep track of the number of people in each Svate
 Sv0=c()
 Sv0[1:al]=c((N[1:6]*(1-v*eff)), rep(0,al-6))#Maternal immunity
