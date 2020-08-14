@@ -99,22 +99,41 @@ loglik_function <- function(parameters,dat) {   # takes as inputs the parameter 
   ptrans <<- ptrans
   b1 <<- b1
   phi <<- phi
-
    # Simulate the model with initial conditions and timesteps defined above, and parameter values from function call
    output <- as.data.frame(ode(y = initial_state_values, 
                                times = times, 
                                func = my_model,
-                               parms = c(parmset,ptrans,b1,phi)))      
+                               parms = c(parmset,ptrans,b1,phi)))
    
-   LL <- sum(dpois(x = dat$rsv, lambda = 1.5 * output$`3`[output$time %in% dat$time], log = TRUE)) 
+   output <- tail(output,1225)
+   St <- output[,-1]
+
+   St <- as.matrix(St)
+   
+   b=ptrans/dur
+   beta=(b/100)/(sum(N0state)^(1-q))*c2
+ 
+   lambda1=matrix(0,nrow=tmax-t0,ncol=al)#Force of infection
+    for (t in 1:1225)
+    {lambda1[t,] <- as.vector((1+b1*cos(2*pi*(t-phi*52.18)/52.18))*((St[t,(2*al+1):(3*al)]+rho1*St[t,(4*al+1):(5*al)]+rho2*St[t,(6*al+1):(7*al)]+rho2*St[t,(8*al+1):(9*al)])%*%beta)/sum(St[t,]))}
+
+   
+   H1=matrix(0,nrow=tmax-t0,ncol=al)#Number of hospitalizations by age
+   for (i in 1:al){
+     H1[,i]=hosp1[i]*St[,(al+i)]*lambda1[,i]+hosp2[i]*rr1*St[,(3*al+i)]*lambda1[,i]+hosp3[i]*rr2*St[,(5*al+i)]*lambda1[,i]+hosp4[i]*rr3*St[,(7*al+i)]*lambda1[,i]
+   }
+   H <- rowSums(H1)
+   
+   LL <- sum(dpois(x = dat$rsv, lambda =H[output$time %in% rsv$time], log = TRUE)) 
    return(LL)
    }
 
-optim(par = c(7.9,.38,0.5),           # starting values for beta and gamma - you should get the same result no matter 
-                                   # which values you choose here
+minLL <- optim(par = c(7.9,.38,0.5),           # starting values for beta and gamma - you should get the same result no matter                              # which values you choose here
       fn = loglik_function,        # the distance function to optimise
       dat = rsv,         # the dataset to fit to ("dat" argument is passed to the function specified in fn)
-      control = list(fnscale=-1))  # tells optim() to look for the maximum number 
+      control = list(fnscale=-1),
+      lower=c(0, 0, -Inf), upper=rep(Inf, 3),
+      method="L-BFGS-B")  # tells optim() to look for the maximum number 
 
 ```
 
