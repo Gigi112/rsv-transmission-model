@@ -44,6 +44,82 @@ functions {
       real dS3_dt =  gamma3*I3 + gamma3*I4 - sigma3*lambda*S3 - um*S3;
       real dI4_dt =  sigma3*lambda*S3 - gamma3*I4 - um*I4;
       
-      return {lambda,dM_dt, dS0_dt, dI1_dt,dS1_dt, dI2_dt, dS2_dt, dI3_dt,dS3_dt, dI4_dt};
+      return {dM_dt, dS0_dt, dI1_dt,dS1_dt, dI2_dt, dS2_dt, dI3_dt,dS3_dt, dI4_dt};
+  }
+}
+
+// Fixed data is declared in the data block:
+data {
+  int<lower=1> n_days;
+  real y0[9];
+  real t0;
+  real ts[n_days];
+  int N;
+  real birthrate;
+  real um;
+  real rho1;
+  real rho2;
+  real gamma1;
+  real gamma2;
+  real gamma3;
+  real sigma1;
+  real sigma2;
+  real sigma3;
+  int hosp_cases[n_days];
+  real hosp1;
+  real hosp2;
+  real hosp3;
+}
+
+
+transformed data {
+  real x_r[10];
+  int x_i[1] = { N };
+  
+  x_r[1]= birthrate;
+  x_r[2]=um;
+  x_r[3]=rho1;
+  x_r[4]=rho2;
+  x_r[5]=gamma1;
+  x_r[6]=gamma2;
+  x_r[7]=gamma3;
+  x_r[8]=sigma1;
+  x_r[9]=sigma2;
+  x_r[10]=sigma3;
+}
+
+parameters {
+  real<lower=0> beta;
+  real<lower=0> omega;
+}
+
+transformed parameters{
+  real y[n_days, 9]; // y is the states matrix that has row length=n_days and columns=3.
+  real lambda[n_days];
+  
+    // outcomes
+  vector[n_days] output_hosp; // overall case incidence by day
+  {
+    real theta[2];
+    theta[1] = beta;
+    theta[2] = omega;
+
+    y = integrate_ode_rk45(msis, y0, t0, ts, theta, x_r, x_i);
+  }
+  
+  for(i in 1:n_days){
+    lambda[i] = beta * (y[i,3] + rho1*y[i,5] + rho2*y[i,7] + rho2*y[i,9]);
+    output_hosp[i] = hosp1*y[i,2]*lambda[i]+hosp2*sigma1*y[i,4]*lambda[i]+hosp3*sigma2*y[i,6]*lambda[i]+hosp3*sigma3*y[i,8]*lambda[i];
+  }
+}
+
+model {
+  //priors
+  beta ~ normal(2, 1); //truncated at 0
+  omega ~ normal(0.4, 0.5); //truncated at 0
+  
+  for(i in 1:n_days) {
+  //sampling distribution
+  target += poisson_lpmf(hosp_cases[i] | output_hosp[i]);
   }
 }
