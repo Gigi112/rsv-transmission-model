@@ -52,7 +52,7 @@ functions {
       
        lambda[a] = season_txn*sum(to_vector(c2[((a-1)*agegroups+1):(a*agegroups)]).*to_vector(InfectN));
       
-       dydt[a] =  birthrate[a]*sum(y) - (omega+u[a]+um)*M[a];
+       dydt[a] =  log(birthrate[a]+1)/12*sum(y) - (omega+u[a]+um)*M[a];
        dydt[a+agegroups] =  omega*M[a] - lambda[a]*S0[a] - (um+u[a])*S0[a];
        dydt[a+2*agegroups] =  lambda[a]*S0[a] - gamma1*I1[a] - (um+u[a])*I1[a];
        dydt[a+3*agegroups] =  gamma1*I1[a] - sigma1*lambda[a]*S1[a] - (um+u[a])*S1[a];
