@@ -102,9 +102,9 @@ data {
   real sigma2;
   real sigma3;
   int<lower=1> hosp_cases[n_days];
-  real hosp1;
-  real hosp2;
-  real hosp3;
+  real hosp1[agegroups];
+  real hosp2[agegroups];
+  real hosp3[agegroups];
   real omega;
   real c2[agegroups*agegroups];
   real u[agegroups];
@@ -141,9 +141,20 @@ parameters {
 transformed parameters{
   real y[n_days, 9*agegroups]; // y is the states matrix that has row length=n_days and columns=9.
   real<lower=0,upper=2*pi()> phi=(2*pi()*exp(trans))/(1+exp(trans));
-  real rel_inf[n_days];
-  real season_beta[n_days];
+  real rel_inf[n_days,agegroups];
+  real season_txn[n_days];
+  real S0[n_days,agegroups];
+  real I1[n_days,agegroups];
+  real S1[n_days,agegroups];
+  real I2[n_days,agegroups];
+  real S2[n_days,agegroups];
+  real I3[n_days,agegroups];
+  real S3[n_days,agegroups];
+  real I4[n_days,agegroups];
+  real beta_contact;
+  real lambda[n_days, 9*agegroups];
     // outcomes
+  real HOSP_AGE[n_days,9*agegroups];
   vector<lower = 0>[n_days] output_hosp; // overall case incidence by day
   {
     real theta[3];
@@ -157,14 +168,32 @@ transformed parameters{
   
   for(i in 1:n_days){
     
-    for(j in 1:9){
+    for(j in 1:9*agegroups){
     if (y[i,j] <= 0.0) y[i,j] = 1e-12;}
     
-    rel_inf[i]=(y[i,3]+rho1*y[i,5]+rho2*y[i,7]+rho2*y[i,9])/sum(y[i,]);
+        S0[i,] = y[i,(agegroups+1):2*agegroups];
+        I1[i,] = y[i,(2*agegroups+1):(3*agegroups)];
+        S1[i,] = y[i,(3*agegroups+1):(4*agegroups)];
+        I2[i,] = y[i,(4*agegroups+1):(5*agegroups)];
+        S2[i,] = y[i,(5*agegroups+1):(6*agegroups)];
+        I3[i,] = y[i,(6*agegroups+1):(7*agegroups)];
+        S3[i,] = y[i,(7*agegroups+1):(8*agegroups)];
+        I4[i,] = y[i,(8*agegroups+1):(9*agegroups)];
     
-    season_beta[i]=(1+b1*cos(2*pi()*i/12 - phi))*beta;
-    
-    output_hosp[i] = hosp1*y[i,2]*rel_inf[i]*season_beta[i]+hosp2*sigma1*y[i,4]*rel_inf[i]*season_beta[i] +hosp3*sigma2*y[i,6]*rel_inf[i]*season_beta[i] +hosp3*sigma3*y[i,8]*rel_inf[i]*season_beta[i];
+      season_txn[i] = (1+b1*cos(2*pi()*i/12 - phi));
+      
+      beta_contact = beta/(sum(y[i,])^(1-q));
+      for (k in 1:agegroups) {
+      rel_inf[i,k] = (I1[i,k]+rho1*I2[i,k]+rho2*I3[i,k]+rho2*I4[i,k]);
+      } 
+      
+      for (a in 1:agegroups) {
+      
+       lambda[i,a] = season_txn[i]*sum(to_vector(c2[((a-1)*agegroups+1):(a*agegroups)]).*to_vector(rel_inf[i,]));
+       HOSP_AGE[i,a] = hosp1[a]*lambda[i,a]*S0[i,a]+hosp2[a]*sigma1*lambda[i,a]*S1[i,a]+hosp3[a]*sigma2*lambda[i,a]*S2[i,a] +hosp3[a]*sigma3*lambda[i,a]*S3[i,a];
+}
+
+    output_hosp[i] = sum(HOSP_AGE[i,]);
   }
 }
 
