@@ -87,7 +87,7 @@ data {
   int<lower=1> n_days;
   int<lower=1> agegroups;
   int q;
-  real y0[9];
+  real y0[9*agegroups];
   real t0;
   real ts[n_days];
   int N;
