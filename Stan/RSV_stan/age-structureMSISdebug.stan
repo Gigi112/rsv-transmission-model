@@ -150,7 +150,7 @@ transformed parameters{
     theta[2] = b1;
     theta[3] = phi;
     
-    y = integrate_ode_bdf(msis, y0, t0, ts, theta, x_r, x_i,1.0E-4,1.0E-4,1.0E3);
+    y = integrate_ode_bdf(msis, y0, t0, ts, theta, x_r, x_i,1.0E-5,1.0E-5,1.0E2);
 
   }
   
