@@ -1,0 +1,326 @@
+---
+title: "livevac_cohort"
+author: "Zhe Zheng"
+date: "11/29/2021"
+output: html_document
+---
+
+```{r}
+### load required library
+library(deSolve) # for ODE function
+library(RColorBrewer) # for pretty color in ggplot
+library(reshape2) # to reshape data frames from wide to long for plotting
+library(tibble) # to add additional columns to the initial matrix
+library(ggplot2) # to plot
+```
+
+```{r}
+# equilibrium status of RSV epidemics in New Jersey using parameter estimates from maximum likelihood estimates
+data_nj <- readRDS("C:/Users/70914/OneDrive/standata/data_msis_NJ_fivepara.rds")
+# Birth rate from CDC WONDER database
+Birth_rate <- readRDS("C:/Users/70914/Box/aim3/RSVtransmissionmodel/RSV_metapop/SimpleModel/data_and_parms/Birth_rate.rds")
+
+hosp1 <- data_nj$hosp1# proportion of first infections that are hospitalized
+hosp2 <- data_nj$hosp2 # proportion of second infections that are hospitalized
+hosp3 <- data_nj$hosp2*0.025 # proportion of third and subsequent infections that are hospitalized
+
+al <- 13 # number of age groups
+c2 <- data_nj$c2 # contact matrix
+```
+
+## cohort model
+```{r}
+livevac_model<- function(t,y,parms, time.step='month'){
+  
+  States<-array(y, dim=dim(parms$yinit.matrix))
+  dimnames(States) <- dimnames(parms$yinit.matrix)
+  um=parms$um
+  
+  if(parms$time.step=='month'){
+    period=12
+    length.step=30.44 #days
+  }else if(parms$time.step=='week'){
+    period=52.1775
+    length.step=7 #days
+  }
+  
+  omega = 1/(parms$DurationMatImmunityDays/length.step)
+  
+  mu= 1/parms$WidthAgeClassMonth
+  if(parms$time.step=='week'){
+    mu= 1/(WidthAgeClassMonth*4.345)
+  }
+  
+  gamma1= 1/(parms$dur.days1/length.step)  #converts 1/days to 1/lenth.step
+  gamma2= 1/(parms$dur.days2/length.step)  
+  gamma3= 1/(parms$dur.days3/length.step)  
+  gamma4= gamma3  #gamma3 stands for rate of recovery from subsequent infection
+  gamma_v= 1/(parms$dur.days_v/length.step)
+  
+   if(t<parms$burnin){
+	    Cfs = 0 # vaccine coverage, before burn-in, no vaccines
+	  } 
+	  else {
+	    Cfs = parms$Cfs # vaccine coverage will be informed by pediatric vaccine coverage
+	  }
+  
+	#read in vaccination efficacy, based on live-attenuated vaccine immunogenic
+   Vfs = parms$Vfs
+   
+  
+  #Pull out the states  for the model as vectors
+  M <-  States[,'M']
+  S0 <-  States[,'S0']
+  I1 <-  States[,'I1']
+  
+  Iv <-  States[,'Iv']
+  Sv <-  States[,'Sv']
+  
+  S1 <-  States[,'S1']
+  I2 <-  States[,'I2']
+  
+  S2 <-  States[,'S2']
+  I3 <-  States[,'I3']
+  
+  S3 <-  States[,'S3']
+  I4 <-  States[,'I4']
+  
+  
+  N.ages <- length(M)
+  
+
+  ##fixed lambda parameter##################
+
+  lambda <- parms$lambda # This lambda is fixed in order to reproduce the same incidence of RSV hospitalizations
+  # in unvaccinated cohort (The main anchor point is day 150/180)
+  lambda_v <- parms$RR*parms$lambda*sum(Iv)/3047 # vaccine virus has a lower infectiousness and the force of infection 
+  # is associated with the proportion of Iv in the population (3047 is the total number of I in month 247 without vaccination)
+  ##########?????????????????##########################  
+  
+  dy <- matrix(NA, nrow=N.ages, ncol=ncol(States))
+  colnames(dy) <- colnames(States)
+  
+  period.birth.rate <- log(parms$PerCapitaBirthsYear[t,]+1)/period #B=annual birth rate
+  
+  #https://journals.plos.org/plospathogens/article/file?id=10.1371/journal.ppat.1004591.s016&type=supplementary
+  #mu represents aging to the next class
+  #um is death rate
+  
+  Aging.Prop <- c(0,mu[1:(N.ages-1)])
+  
+  dy[,'M'] <- period.birth.rate*sum(States) - 
+    (omega+(mu+um))*M +
+   c(0,M[1:(N.ages-1)])*Aging.Prop -
+     c(0,M[1:(N.ages-1)])*c(0,Cfs*Vfs,rep(0,N.ages-2))*Aging.Prop
+
+  dy[,'S0'] <- omega*M -
+    lambda*S0 -
+    (mu + um)*S0 + 
+    c(1,(1-Cfs*Vfs),rep(1,N.ages-2))*Aging.Prop*c(0,S0[1:(N.ages-1)]) -
+    lambda_v*S0
+  
+  dy[,'I1'] <-   lambda*S0 - 
+    (gamma1 + mu + um)*I1 + 
+    Aging.Prop*c(0,I1[1:(N.ages-1)]) 
+  
+  # Iv stands for just got vaccinated and can shed vaccine virus to others
+  # a proportion of infants that are 2-3 month old will leave M and S0 and enter Iv
+  # because they receive live attenuated vaccine at that time; correspond to the expected vaccination schedule
+  dy[,'Iv'] <-  c(0,M[1:(N.ages-1)])*c(0,Cfs*Vfs,rep(0,N.ages-2))*Aging.Prop +
+     c(0,Cfs*Vfs,rep(0,N.ages-2))*Aging.Prop*c(0,S0[1:(N.ages-1)]) +  
+     lambda_v*S0 -
+     ( mu + um)*Iv + 
+     Aging.Prop*c(0,Iv[1:(N.ages-1)]) - 
+     gamma_v*Iv
+
+  # when the infants stop shedding vaccine virus, they enter the Sv compartment
+  # we assumed their susceptibility to infections is now equal to after a natural infection (S1) because of vaccination
+  dy[,'Sv'] <-   gamma_v*Iv - 
+    parms$sigma1*lambda*Sv - # after being infected, Sv will move to I2
+    (mu+um)*Sv + 
+    Aging.Prop*c(0,Sv[1:(N.ages-1)])
+  
+  # the rest is the same as original transmission model
+  dy[,'S1'] <- gamma1*I1 - 
+    parms$sigma1*lambda*S1 - 
+    (mu+um)*S1 + 
+    Aging.Prop*c(0,S1[1:(N.ages-1)])
+  
+  dy[,'I2'] <- parms$sigma1*lambda*S1 +
+    parms$sigma1*lambda*Sv - 
+    gamma2*I2-(mu + um)*I2 + 
+    Aging.Prop*c(0,I2[1:(N.ages-1)]) 
+  
+  dy[,'S2'] <- gamma2*I2 - 
+    parms$sigma2*lambda*S2 -
+    (mu+um)*S2+ 
+    Aging.Prop*c(0,S2[1:(N.ages-1)]) 
+  
+  dy[,'I3'] <- parms$sigma2*lambda*S2 -
+    (gamma3 + mu+um)*I3 +  
+    Aging.Prop*c(0,I3[1:(N.ages-1)]) 
+  
+  dy[,'S3'] <- gamma3*I3 +  
+    gamma4*I4 -
+    parms$sigma3*lambda*S3 -
+    (mu + um)*S3 + 
+    Aging.Prop*c(0,S3[1:(N.ages-1)])
+  
+  dy[,'I4'] <- parms$sigma3*lambda*S3 - 
+    gamma4*I4 - 
+    (mu + um)*I4 + 
+    Aging.Prop*c(0,I4[1:(N.ages-1)]) 
+  
+  
+  
+  
+  derivs <- as.vector(dy)
+  
+  res <- list(derivs)
+  
+  return(res)
+}
+
+```
+
+
+#initialize population
+```{r saveparms}
+# initialize a 13*11 matrix and a vector length 143 that contains 13 age groups and 11 transmission/vaccination compartments
+yinit.matrix= matrix(data_nj$y0,nrow=13,ncol=9)
+dimnames(yinit.matrix)[[2]] <-c('M','S0','I1','S1','I2','S2','I3','S3','I4')
+dimnames(yinit.matrix)[[1]] <-c("<2m","2-3m","4-5m","6-7m","8-9m","10-11m","1Y","2-4Y","5-9Y","10-19Y","20-39Y","40-59Y","60Y+")
+yinit.frame= data.frame(yinit.matrix)
+yinit.frame= add_column(yinit.frame,Iv = rep(0,13), .after = "I1") # Iv stands for just got vaccinated and can shed
+# vaccine virus to others
+yinit.frame= add_column(yinit.frame,Sv = rep(0,13), .after = "Iv") # Sv stands for a lower susceptibility to infections
+# because of vaccination
+yinit.matrix=  as.matrix(yinit.frame)
+yinit.vector <- as.vector(yinit.matrix) #Vectorize the ynit matrix
+name.array <- array(NA, dim=dim(yinit.matrix))
+for(i in 1:dim(name.array)[1]){
+  for(j in 1:dim(name.array)[2]){
+      name.array[i,j] <- paste(dimnames(yinit.matrix)[[1]][i],dimnames(yinit.matrix)[[2]][j]  )
+    }
+  }
+
+name.vector <- as.vector(name.array)
+names(yinit.vector) <- name.vector
+
+```
+
+
+```{r}
+parmsNJ<-list(PerCapitaBirthsYear=matrix(rep(Birth_rate[13,1:13],408),nrow=408,byrow=T),
+            DurationMatImmunityDays=87,
+            WidthAgeClassMonth=1/data_nj$u,
+            um=0.00009,
+            rho1=0.75,
+            rho2=0.51,
+            burnin=247, # no vaccine before this time point
+            Cfs=1, # full coverage after vaccination begin
+            Vfs=0.80, # the average vaccine immunogenic is 0.95 and 95% CI is [0.8, 1]
+            dur.days1=10,
+            dur.days2=7,
+            dur.days3=5,
+            dur.days_v=5, # duration of vaccine virus shedding
+            yinit.matrix= yinit.matrix,
+            lambda = 1.7, # This lambda is fixed in order to reproduce the same incidence of RSV hospitalizations
+  # in unvaccinated  birth cohort (The main anchor point is day 150/180) 
+            RR=0.85, # the relative infectiousness of vaccine virus
+            q=1,
+            sigma1=0.76,
+            sigma2=0.6,
+            sigma3=0.4,
+            time.step='month'
+            )
+```
+
+```{r}
+my_times <- seq(1, 408, by = 1) # gives a sequence from start to end
+
+results <- ode(y=yinit.vector, t=my_times,  
+               func=livevac_model, 
+            parms=parmsNJ)
+```
+
+# check population changes
+```{r}
+M.cols <- results[,grep('M', colnames(results)) ]
+
+M.all <- apply(M.cols,1, sum)
+
+M.cols.m <- melt(M.cols)
+M.cols.m$agegrp <- sub(" .*", "",M.cols.m$Var2 )
+M.cols.c <- dcast(M.cols.m, Var1~agegrp, fun.aggregate = sum)
+
+plot(M.all, type='l')
+plot(x=246:265,M.cols.c[246:265,6], type='l')
+plot(rowSums(results[,-1]),type="l")
+
+Iv.cols <- results[,grep('Iv', colnames(results)) ]
+
+Iv.all <- apply(Iv.cols,1, sum)
+
+Iv.cols.m <- melt(Iv.cols)
+Iv.cols.m$agegrp <- sub(" .*", "",Iv.cols.m$Var2 )
+Iv.cols.c <- dcast(Iv.cols.m, Var1~agegrp, fun.aggregate = sum)
+
+plot(Iv.all, type='l')
+plot(x=246:265,Iv.all[246:265], type='l')
+
+S0.cols <- results[,grep('S0', colnames(results)) ]
+
+S0.all <- apply(S0.cols,1, sum)
+
+S0.cols.m <- melt(S0.cols)
+S0.cols.m$agegrp <- sub(" .*", "",S0.cols.m$Var2 )
+S0.cols.c <- dcast(S0.cols.m, Var1~agegrp, fun.aggregate = sum)
+
+plot(S0.all, type='l')
+plot(x=256:275,S0.all[256:275], type='l')
+
+base.pop <- (M.cols.c[246,6]+S0.cols.c[246,6])/2 # base cohort is the monthly number of infants in 2-3 month M and S0 compartments right before vaccine campaign
+```
+
+
+```{r}
+    St <- results[,-1]
+   lambda <- 1.7
+   
+H1=matrix(0,nrow=408,ncol=12)#Number of first hospitalizations by age (in the clinical study, they only count how many infants ever been hospitalized)
+   for (i in 1:12){
+
+H1[,i]=
+  lambda*hosp1[i]*St[,(al+i)]+lambda*parmsNJ$sigma1*hosp2[i]*St[,(4*al+i)]
+   }
+
+   H<- sum(H1[254,2],H1[255,3],H1[256,4])# wait until all infants in 2-3 m got vaccinated
+   
+   H/base.pop
+   
+   1-H/base.pop/0.04404403
+```
+
+## change Vfs and get the corresponding H and H1
+```{r}
+Placebo_curve <- c(base.pop,base.pop-H1[254,2],base.pop-sum(H1[254,2],H1[255,3]),base.pop-sum(H1[254,2],H1[255,3],H1[256,4]))/base.pop
+
+Vac_curve_lower <-c(base.pop,base.pop-H1[254,2],base.pop-sum(H1[254,2],H1[255,3]),base.pop-sum(H1[254,2],H1[255,3],H1[256,4]))/base.pop
+
+Vac_curve_mean <-c(base.pop,base.pop-H1[254,2],base.pop-sum(H1[254,2],H1[255,3]),base.pop-sum(H1[254,2],H1[255,3],H1[256,4]))/base.pop
+
+Vac_curve_upper <-c(base.pop,base.pop-H1[254,2],base.pop-sum(H1[254,2],H1[255,3]),base.pop-sum(H1[254,2],H1[255,3],H1[256,4]))/base.pop
+```
+
+# plot the survival curves 
+```{r}
+plot(x=seq(60,240,60),y= Placebo_curve,type="l",ylab="Proportion Not Hospitalized",xlab="Days",bty="l", xlim=c(60,240), axes=FALSE, main="Hospitalization Survival curve")
+axis(side=1, at=seq(60,240,30))
+axis(side=2, at=seq(0.96, 1, 0.01))
+lines(x=seq(60,240,60),y= Vac_curve_lower,col="red",lty=2)
+lines(x=seq(60,240,60),y= Vac_curve_mean,col="blue")
+lines(x=seq(60,240,60),y= Vac_curve_upper,col="orange",lty=2)
+legend("bottomleft",lty=c(1,2,1,2),col=c("black","red","blue","orange"),
+   c("Placebo","35.7% efficacy","39.9% efficacy","41.2% efficacy"))
+```

@@ -1,0 +1,299 @@
+---
+title: "MatCohort"
+author: "Zhe Zheng"
+date: "11/5/2021"
+output: html_document
+---
+
+
+```{r}
+### load required library
+library(deSolve) # for ODE function
+library(RColorBrewer) # for pretty color in ggplot
+library(reshape2) # to reshape data frames from wide to long for plotting
+library(tibble) # to add additional columns to the initial matrix
+library(ggplot2) # to plot
+```
+
+```{r}
+# equilibrium status of RSV epidemics in New Jersey using parameter estimates from maximum likelihood estimates
+data_nj <- readRDS("C:/Users/70914/OneDrive/standata/data_msis_NJ_fivepara.rds")
+# Birth rate from CDC WONDER database
+Birth_rate <- readRDS("C:/Users/70914/Box/aim3/RSVtransmissionmodel/RSV_metapop/SimpleModel/data_and_parms/Birth_rate.rds")
+
+
+hosp1 <- data_nj$hosp1# proportion of first infections that are hospitalized
+hosp2 <- data_nj$hosp2 # proportion of second infections that are hospitalized
+hosp3 <- data_nj$hosp2*0.025 # proportion of third and subsequent infections that are hospitalized
+
+al <- 13 # number of age groups
+c2 <- data_nj$c2 # contact matrix
+```
+
+```{r saveparms}
+# initialize a 13*12 matrix and a vector length 156 that contains 13 age groups and 12 transmission/vaccination compartments; we actually only need to consider the Mv and Sv compartment at this point since the clinical trials focused on evaluating vaccine efficacy in infants
+yinit.matrix= matrix(data_nj$y0,nrow=13,ncol=9)
+dimnames(yinit.matrix)[[2]] <-c('M','S0','I1','S1','I2','S2','I3','S3','I4')
+dimnames(yinit.matrix)[[1]] <-c("<2m","2-3m","4-5m","6-7m","8-9m","10-11m","1Y","2-4Y","5-9Y","10-19Y","20-39Y","40-59Y","60Y+")
+yinit.frame= data.frame(yinit.matrix)
+# This model assumed that vaccinating pregnant women will provide additional protection to newborns that lower 
+# the susceptibility of the newborns when they come into contact with RSV 
+yinit.frame= add_column(yinit.frame,Mv = rep(0,13),Sv = rep(0,13), .after = "M")
+# Vaccination may also provide additional benefit for the pregnant women as well, which may lower their susceptibility # and infectiousness when they are infected. This may provide indirect benefit to their newborns as well
+yinit.frame= add_column(yinit.frame,V1 = rep(0,13), .after = "S3")
+yinit.matrix=  as.matrix(yinit.frame)
+yinit.vector <- as.vector(yinit.matrix) #Vectorize the ynit matrix
+name.array <- array(NA, dim=dim(yinit.matrix))
+for(i in 1:dim(name.array)[1]){
+  for(j in 1:dim(name.array)[2]){
+      name.array[i,j] <- paste(dimnames(yinit.matrix)[[1]][i],dimnames(yinit.matrix)[[2]][j]  )
+    }
+  }
+
+name.vector <- as.vector(name.array)
+names(yinit.vector) <- name.vector
+
+```
+
+```{r}
+# this model fixed the force of infection and we use it to evaluate vaccine efficacy in a cohort
+maternal_cohort <- function(t,y,parms, time.step='month'){
+  
+  States<-array(y, dim=dim(parms$yinit.matrix))
+  dimnames(States) <- dimnames(parms$yinit.matrix)
+  um=parms$um
+  
+  if(parms$time.step=='month'){
+    period=12
+    length.step=30.44 #days
+  }else if(parms$time.step=='week'){
+    period=52.1775
+    length.step=7 #days
+  }
+  
+  omega = 1/(parms$DurationMatImmunityDays/length.step)
+  v=parms$ProPort # vaccine coverage
+  RR=parms$RR[t] # relative risk reduction after vaccination; equal to 1 before vaccine introduction
+  
+  mu= 1/parms$WidthAgeClassMonth
+  if(parms$time.step=='week'){
+    mu= 1/(WidthAgeClassMonth*4.345)
+  }
+  
+  gamma1= 1/(parms$dur.days1/length.step)  #converts 1/days to 1/lenth.step
+  gamma2= 1/(parms$dur.days2/length.step)  
+  gamma3= 1/(parms$dur.days3/length.step)  
+  gamma4= gamma3  #??Is this right?? Yes, gamma3 stands for rate of recovery from subsequent infection
+  
+   #Pull out the states  for the model as vectors
+  M <-  States[,'M'] # newborns without vaccination of mothers 
+  Mv <-  States[,'Mv'] # newborns with vaccination of mothers 
+  Sv <-  States[,'Sv']  # newborns with vaccination of mothers has lower risk of infections when maternal immunity wanes
+  S0 <-  States[,'S0']
+  I1 <-  States[,'I1']
+  
+  S1 <-  States[,'S1']
+  I2 <-  States[,'I2']
+  
+  S2 <-  States[,'S2']
+  I3 <-  States[,'I3']
+  
+  S3 <-  States[,'S3']
+  V1 <-  States[,'V1']
+  I4 <-  States[,'I4']
+  
+  N.ages <- length(M)
+  
+  ###Check the standardization of beta and overall structure of lambda here
+  ##???##################
+
+  lambda <- parms$lambda # This lambda is fixed in order to reproduce the same incidence of RSV hospitalizations
+  # in unvaccinated cohort (The main anchor point is day 150/180)
+  ##########?????????????????##########################  
+  
+  dy <- matrix(NA, nrow=N.ages, ncol=ncol(States))
+  colnames(dy) <- colnames(States)
+  
+  period.birth.rate <- log(parms$PerCapitaBirthsYear[t,]+1)/period #B=annual birth rate
+  
+  #https://journals.plos.org/plospathogens/article/file?id=10.1371/journal.ppat.1004591.s016&type=supplementary
+  #mu represents aging to the next class
+  #um is death rate
+  
+  Aging.Prop <- c(0,mu[1:(N.ages-1)])
+  
+  # newborns without vaccination of mothers is still protected from infections because of maternal immunity
+  dy[,'M'] <- (1-v)*period.birth.rate*sum(States) - 
+    (omega+(mu+um))*M +
+    Aging.Prop*c(0,M[1:(N.ages-1)]) 
+  
+  # newborns with vaccination of mothers is also protected from infections because of maternal immunity
+  dy[,'Mv'] <- v*period.birth.rate*sum(States) - 
+    (omega+(mu+um))*Mv +
+    Aging.Prop*c(0,Mv[1:(N.ages-1)]) 
+  
+  # after the maternal immunity wanes, newborns with vaccination of mothers has lower risk of infections
+  dy[,'Sv'] <- omega*Mv - 
+    RR*lambda*Sv -
+    (mu + um)*Sv + 
+    Aging.Prop*c(0,Sv[1:(N.ages-1)]) 
+  
+  dy[,'S0'] <- omega*M -
+    lambda*S0 -
+    (mu + um)*S0 + 
+    Aging.Prop*c(0,S0[1:(N.ages-1)]) 
+  
+  dy[,'I1'] <-   lambda*S0+ RR*lambda*Sv - 
+    (gamma1 + mu + um)*I1 + 
+    Aging.Prop*c(0,I1[1:(N.ages-1)]) 
+  
+  dy[,'S1'] <- gamma1*I1 - 
+    parms$sigma1*lambda*S1 - 
+    (mu+um)*S1 + 
+    Aging.Prop*c(0,S1[1:(N.ages-1)]) 
+  
+  dy[,'I2'] <- parms$sigma1*lambda*S1 - 
+    gamma2*I2-(mu + um)*I2 + 
+    Aging.Prop*c(0,I2[1:(N.ages-1)]) 
+  
+  dy[,'S2'] <- gamma2*I2 - 
+    parms$sigma2*lambda*S2 -
+    (mu+um)*S2 + 
+    Aging.Prop*c(0,S2[1:(N.ages-1)]) 
+  
+  dy[,'I3'] <- parms$sigma2*lambda*S2 -
+    (gamma3 + mu+um)*I3 +  
+    Aging.Prop*c(0,I3[1:(N.ages-1)]) 
+  
+  dy[,'S3'] <- gamma3*I3 +  
+    gamma4*I4 -
+    parms$sigma3*lambda*S3 -
+    c(rep(0,10),sum(v*period.birth.rate*sum(States)),rep(0,2)) -
+    (mu + um)*S3 + 
+    Aging.Prop*c(0,S3[1:(N.ages-1)]) 
+  
+  dy[,'V1'] <- c(rep(0,10),sum(v*period.birth.rate*sum(States)),rep(0,2)) -
+    RR*parms$sigma3*lambda*V1 -
+    (mu + um)*V1 + 
+    Aging.Prop*c(0,V1[1:(N.ages-1)]) 
+  
+  dy[,'I4'] <- parms$sigma3*lambda*S3 + RR*parms$sigma3*lambda*V1 - 
+    gamma4*I4 - 
+    (mu + um)*I4 + 
+    Aging.Prop*c(0,I4[1:(N.ages-1)]) 
+  
+  derivs <- as.vector(dy)
+  
+  res <- list(derivs)
+  
+  return(res)
+}
+```
+
+```{r}
+# the meaning of other parameters can be seem in MAbsatbirth.RMD 
+matCohort<-list(PerCapitaBirthsYear=matrix(rep(Birth_rate[13,1:13],408),nrow=408,byrow=T),
+            DurationMatImmunityDays=87,
+            ProPort=1, # vaccine coverage = 100% or 0% or vaccinated and unvaccinated cohort
+            RR=c(rep(1,252),rep(0.36,408-252)), # evaluate which RR corresponds to 50%, 70%, and 90% vaccine efficacy 
+            WidthAgeClassMonth=1/data_nj$u,
+            um=0.00009,
+            rho1=0.75,
+            rho2=0.51,
+            dur.days1=10,
+            dur.days2=7,
+            dur.days3=5,
+            yinit.matrix= yinit.matrix,
+            lambda = 1.7, # This lambda is fixed in order to reproduce the same incidence of RSV hospitalizations
+  # in unvaccinated cohort (The main anchor point is day 150/180)
+            q=1,
+            sigma1=0.76,
+            sigma2=0.6,
+            sigma3=0.4,
+            time.step='month'
+            )
+
+```
+
+```{r}
+my_times <- seq(1, 408, by = 1) # gives a sequence from start to end
+
+results <- ode(y=yinit.vector, t=my_times,  
+               func=maternal_cohort, 
+            parms=matCohort)
+
+```
+
+
+```{r}
+# make sure the model is correct, after vaccination begins, all infants will enter vaccinated cohort
+results[253,grep('<2m Sv', colnames(results))]
+results[253,grep('<2m S0', colnames(results))]
+results[253,grep('<2m M', colnames(results))]
+```
+
+```{r}
+   RR=matCohort$RR
+    St <- results[,-1]
+   lambda <- 1.7
+   
+H1=matrix(0,nrow=408,ncol=3)#Number of first hospitalizations by age (in the clinical study, they only count how many infants ever been hospitalized)
+# https://www.nejm.org/doi/full/10.1056/NEJMoa1908380?query=recirc_curatedRelated_article
+   for (i in 1:3){
+H1[,i]=St[,(2*al+i)]*RR*lambda*hosp1[i]+lambda*hosp1[i]*St[,(3*al+i)]
+     }
+   H<- H1[253,1]+H1[254,2]+H1[255,3]
+
+```
+
+## check H1
+```{r}
+plot(100:408,rowSums(H1[100:408,1:3]),xlab = "date",ylab="RSV cases",type="l",lty=3,bty="l",col="red")
+```
+
+```{r}
+
+H/(log(Birth_rate[253,1]+1)/12*sum(St[253,])) # proportion of hospitalizations in vaccinated birth cohort
+
+1-H/(log(Birth_rate[253,1]+1)/12*sum(St[253,]))/0.04102003 # 4.1% is the proportion of hospitalizations in unvaccinated birth cohort
+```
+
+## change RR and get the corresponding H and H1
+```{r}
+pop_birth <- (log(Birth_rate[253,1]+1)/12*sum(St[253,]))
+Placebo_curve <- c(pop_birth,pop_birth-H1[253,1],pop_birth-sum(H1[253,1],H1[254,2]),pop_birth-H)/pop_birth
+
+Vac_curve_lower <-c(pop_birth,pop_birth-H1[253,1],pop_birth-sum(H1[253,1],H1[254,2]),pop_birth-H)/pop_birth
+
+Vac_curve_mean <-c(pop_birth,pop_birth-H1[253,1],pop_birth-sum(H1[253,1],H1[254,2]),pop_birth-H)/pop_birth
+
+Vac_curve_upper <-c(pop_birth,pop_birth-H1[253,1],pop_birth-sum(H1[253,1],H1[254,2]),pop_birth-H)/pop_birth
+```
+
+# plot the survival curves 
+```{r}
+plot(x=seq(0,180,60),y= Placebo_curve,type="l",ylab="Proportion Not Hospitalized",xlab="Days",bty="l", xlim=c(0,180), axes=FALSE, main="Hospitalization Survival curve")
+axis(side=1, at=seq(0,180,30))
+axis(side=2, at=seq(0.94, 1, 0.02))
+lines(x=seq(0,180,60),y= Vac_curve_lower,col="red",lty=2)
+lines(x=seq(0,180,60),y= Vac_curve_mean,col="blue")
+lines(x=seq(0,180,60),y= Vac_curve_upper,col="orange",lty=2)
+legend("bottomleft",lty=c(1,2,1,2),col=c("black","red","blue","orange"),
+   c("Placebo","50% efficacy at day 180;RR=0.36","73% efficacy at day 180;RR=0.17","89% efficacy at day 180;RR=0.06"))
+```
+
+# plot a nicer survival curves
+```{r}
+Mat_Ef <- data.frame(Days=rep(seq(0,180,60),4),H_prop=c(Placebo_curve,Vac_curve_lower,Vac_curve_mean,Vac_curve_upper),Efficacy=c(rep("Placebo",length(Placebo_curve)),rep("50%",length(Placebo_curve)),rep("73%",length(Placebo_curve)),rep("89%",length(Placebo_curve))),Intervention=c(rep("Placebo",length(Placebo_curve)),rep("Vaccine",length(Placebo_curve)*3)))
+
+ggplot(data=Mat_Ef)+
+     geom_line(aes(x=Days,y=H_prop,color=Efficacy,linetype=Intervention),size=0.2)+
+     xlab("Days")+
+     ylab("Proportion Not Hospitalized")+
+     scale_linetype_manual(values=c("dotted","solid" ))+
+     scale_y_continuous(breaks = seq(0.94,1,0.01))+
+  scale_x_continuous(breaks = seq(0,180,30))+
+  scale_color_manual(values=c("#1B9E77","#E6AB02","#E7298A","#000000"))+
+  annotate("text", x = c(rep(60,4),rep(120,4),rep(180,4)), y = 1-c(0.27,0.11,0.06,0.03,0.39,0.18,0.11,0.05,0.43,0.23,0.13,0.06)*0.1, label = c("2.5%","0.9%","0.4%","0.1%","3.7%","1.6%","0.9%","0.3%","4.1%","2.05%","1.1%","0.4%"),size=4)+
+     theme_classic(base_size = 16)
+```
