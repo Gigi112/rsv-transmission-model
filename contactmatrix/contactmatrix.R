@@ -31,9 +31,11 @@ ageorder <- c("Group.1","<2m","2-3m","4-5m","6-7m","8-9m","10-11m","1Y","2-4Y","
 contactUSA <- select(ave_mat,ageorder)
 contactUSA <- contactUSA %>% mutate(Group.1=  factor(Group.1, levels = c("<2m","2-3m","4-5m","6-7m","8-9m","10-11m","1Y","2-4Y","5-9Y","10-19Y","20-39Y","40-59Y","60Y+"))) %>%
   arrange(Group.1)
-contactUSA <- contactUSA[,-1]
+contactUSA <- as.matrix(contactUSA[,-1])
 ## create a symmetric contact matrix
-contactUSA <- 0.5 * (contactUSA + t(contactUSA))
+contactUSA[lower.tri(contactUSA, diag = FALSE)] <- 0
+contactUSA <- contactUSA + t(contactUSA)
+diag(contactUSA) <- 0.5*diag(contactUSA)
 rownames(contactUSA) <-  c("<2m","2-3m","4-5m","6-7m","8-9m","10-11m","1Y","2-4Y","5-9Y","10-19Y","20-39Y","40-59Y","60Y+")
 
 # visualize contact matrix

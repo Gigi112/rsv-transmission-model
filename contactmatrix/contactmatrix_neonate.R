@@ -35,8 +35,8 @@ colnames(expendUSA_infant)=c("<2m","2-3m","4-5m","6-7m","8-9m","10-11m","1Y",rep
                           rep("40-59Y",20),rep("60Y+",25))
 
 # aggregate ages into 13 age groups; average the number of contacts within each age group
-ave_mat_x = aggregate( expendUSA_infant, by = list(colnames(expendUSA_infant)), FUN='sum' )
-ave_mat = aggregate( t(ave_mat_x[,-1]), by = list(colnames(expendUSA_infant)), FUN='mean' )
+ave_mat_x = aggregate( expendUSA, by = list(colnames(expendUSA)), FUN='sum' )
+ave_mat = aggregate( t(ave_mat_x[,-1]), by = list(colnames(expendUSA)), FUN='mean')
 rownames(ave_mat) <- ave_mat[,1]
 colnames(ave_mat)[2:length(ave_mat)] <- rownames(ave_mat)
 library(dplyr)
@@ -44,8 +44,11 @@ ageorder <- c("Group.1","<2m","2-3m","4-5m","6-7m","8-9m","10-11m","1Y","2-4Y","
 contactUSA <- select(ave_mat,ageorder)
 contactUSA <- contactUSA %>% mutate(Group.1=  factor(Group.1, levels = c("<2m","2-3m","4-5m","6-7m","8-9m","10-11m","1Y","2-4Y","5-9Y","10-19Y","20-39Y","40-59Y","60Y+"))) %>%
   arrange(Group.1)
-contactUSA <- contactUSA[,-1]
-contactUSA <- 0.5 * (contactUSA + t(contactUSA))
+contactUSA <- as.matrix(contactUSA[,-1])
+## create a symmetric contact matrix
+contactUSA[lower.tri(contactUSA, diag = FALSE)] <- 0
+contactUSA <- contactUSA + t(contactUSA)
+diag(contactUSA) <- 0.5*diag(contactUSA)
 rownames(contactUSA) <-  c("<2m","2-3m","4-5m","6-7m","8-9m","10-11m","1Y","2-4Y","5-9Y","10-19Y","20-39Y","40-59Y","60Y+")
 
 # visualize contact matrix
