@@ -1,0 +1,372 @@
+---
+title: "MLE_CA"
+author: "Zhe Zheng"
+date: "3/11/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# library
+library(deSolve)
+library(RColorBrewer)
+library(reshape2)
+```
+
+```{r}
+#T is N time points; N_ages is number of age groups
+yinit <- readRDS('C:/Users/70914/Box/aim3/RSVtransmissionmodel/data_and_parms/CA/yinit.rds') #intial population
+birth <-  readRDS('C:/Users/70914/Box/aim3/RSVtransmissionmodel/data_and_parms/CA/BrCA.rds')
+contactUSAinfant <- readRDS( 'C:/Users/70914/Box/aim3/RSVtransmissionmodel/data_and_parms/contactmatrix_nodiff.rds') # contact matrix
+ca_agedist <- readRDS('C:/Users/70914/Box/aim3/RSVtransmissionmodel/data_and_parms/CA/ca_agedist.rds')
+rsv_ca <- readRDS('C:/Users/70914/Box/aim3/RSVtransmissionmodel/data_and_parms/CA/rsv_ca.rds')
+```
+
+#View contact matrix
+```{r}
+n.cols=100
+nice.cols <-  colorRampPalette(brewer.pal(9, "YlOrRd"))(n.cols)
+heatmap(contactUSAinfant/sum(diag(contactUSAinfant)), Rowv=NA, Colv=NA, scale='none', col=nice.cols)
+```
+
+Set names of Age groups 
+```{r}
+N_ages <- nrow(yinit) 
+agenames <- c("<2m","2-3m","4-5m","6-7m","8-9m","10-11m","1Y","2-4Y","5-9Y","10-19Y","20-39Y","40-59Y","60Y+")
+al <- N_ages
+```
+
+## Population size by time
+```{r}
+p <- sum(yinit)  # Total population at each time, a vector of length T
+```
+
+##Settings parameters
+Most of these are described in Table 2 of Pitzer et al, PLOS Pathogens: https://journals.plos.org/plospathogens/article?id=10.1371/journal.ppat.1004591
+
+For birth rate:
+The weekly per capita birth rate (B_w) is equal to log(1+B)/52.18 because the data on the birth rate is annual and the differential equation model inherently assumes that growth is occurring exponentially. So if the annual birth rate is equal to 12 per 1000 per year (B=0.012), for example, then we are assuming that:
+
+$N1=N0exp(B_w*52.10)$     where N1 is the population after 1 year and N0 is the baseline population, and $N1=N0*(1+B)$.
+
+$1.012=1*exp(B_w*52.18)$
+
+$B_w=log(1.012)/52.18$.
+
+```{r setparms}
+# initialize populationinput matrix as a vector
+rownames(yinit) <- agenames
+yinit.vector <- as.vector(yinit)
+
+name.array <- array(NA, dim=dim(yinit))
+for(i in 1:dim(name.array)[1]){
+  for(j in 1:dim(name.array)[2]){
+      name.array[i,j] <- paste(dimnames(yinit)[[1]][i],dimnames(yinit)[[2]][j]  )
+    }
+  }
+
+name.vector <- as.vector(name.array)
+names(yinit.vector) <- name.vector
+#########################################
+#Relative infectiousness for 2nd and subsequent infections
+rho1 = 0.75
+rho2 = 0.51
+#########################################
+
+#########################################
+# duration of infectiousness (months)
+#Duration in days
+dur.days1 <- 10 #days
+dur.days2 <- 7 #days
+dur.days3 <- 5 #days
+###########################################  
+
+###########################################
+WidthAgeClassMonth = c(rep(2,times=6), 12,12*3,  60, 120, 240, 240, 240 )  #Aging rate=1/width age class (months) Vector of long N_age
+############################################
+
+############################################
+
+#um : calibrated this parameter so we can reproduce the population growth
+um= -0.0008
+#############################################
+
+#############################################
+#Birth rate (births/person/YEAR
+#Matrix: T rows, N_ages columns; columns 2:N_ages all 0s
+PerCapitaBirthsYear=birth
+#############################################
+
+#############################################
+#Relaive risk of infection following 1st, 2nd, 3rd+ infections
+sigma1=0.76
+sigma2=0.6
+sigma3=0.4
+#############################################
+
+#############################################
+#Relaive risk of hospitalizations following 1st, 2nd infections
+hosp1= c(0.082251950, 0.047607003, 0.026990367, 0.016398471, 0.012376537, 0.012007695, 0.009609524,0.006999893, 0.001000000, 0.001000000, 0.001000000, 0.001000000, 0.001000000)
+hosp2= 0.4*hosp1
+#############################################
+
+#############################################
+#rate of recovery following 1st, 2nd, 3rd+ infections
+#############################################
+length.step=30.44 #days per month
+
+gamma1= 1/(dur.days1/length.step)  #converts 1/days to 1/lenth.step
+  gamma2= 1/(dur.days2/length.step)  
+  gamma3= 1/(dur.days3/length.step)  
+
+```
+
+```{r}
+ start_time = 1 # start date (years)
+ tmax = (2011-1980)*12
+# end_time = 25 # end date (years)
+ca_times <- seq(start_time, tmax, by = 1) # gives a sequence from start to end
+											 # in increments of 1
+```
+
+## Read in transmission dynamic model
+```{r}
+source("C:/Users/70914/Box/aim3/RSVtransmissionmodel/Model_source/Novac_dynamics.R")
+```
+
+```{r saveparms}
+parmstest<-list(PerCapitaBirthsYear=PerCapitaBirthsYear,
+            DurationMatImmunityDays=112,
+            WidthAgeClassMonth=WidthAgeClassMonth,
+            um=um,
+            b1=0.15,
+            phi=3.35,
+            rho1=rho1,
+            rho2=rho2,
+            dur.days1=dur.days1,
+            dur.days2=dur.days2,
+            dur.days3=dur.days3,
+            yinit.matrix=yinit,
+            baseline.txn.rate = 10,
+            q=1,
+            c2=contactUSAinfant,
+            sigma1=sigma1,
+            sigma2=sigma2,
+            sigma3=sigma3,
+            time.step='month'
+            )
+```
+
+## Run the model 
+Note here we are just simulating with set parameters, not fitting to data
+```{r}
+results_test <- ode(y=yinit.vector, t=ca_times,  
+               func=Novac_dynamics, 
+            parms=parmstest)
+
+``` 
+
+```{r}
+plot(rowSums(results_test[,-1]),type="l") # make sure um reproduce population growth
+rowSums(results_test[,-1])[12*23]# should equals to about 35.24 million
+```
+
+## Extract the relevant results to see if the epidemic reach equilibrium
+```{r}
+#used a 23-YEARS burn in period
+burnN <- 23*12
+results.burned <- results_test[-c(1:burnN),]
+
+##Any infected person
+infected.cols <- results.burned[,c(grep('I1', colnames(results.burned)),grep('I2', colnames(results.burned)),grep('I3', colnames(results.burned)),grep('I4', colnames(results.burned)  )) ]
+
+infected.all <- apply(infected.cols,1, sum)
+
+infected.cols.m <- melt(infected.cols)
+infected.cols.m$agegrp <- sub(" .*", "",infected.cols.m$Var2 )
+infected.cols.c <- dcast(infected.cols.m, Var1~agegrp, fun.aggregate = sum)
+
+plot(infected.all, type='l')
+
+```
+
+## fit the model to ca inpatient data in order to estimate inital value of parameters
+```{r}
+parmset<-list(PerCapitaBirthsYear=PerCapitaBirthsYear,
+            WidthAgeClassMonth=WidthAgeClassMonth,
+            um=um,
+            rho1=rho1,
+            rho2=rho2,
+            dur.days1=dur.days1,
+            dur.days2=dur.days2,
+            dur.days3=dur.days3,
+            yinit.matrix=yinit,
+            q=1,
+            c2=contactUSAinfant,
+            sigma1=sigma1,
+            sigma2=sigma2,
+            sigma3=sigma3,
+            time.step='month'
+            )
+```
+
+
+## fit transmission models to get inputs for MCMC process
+```{r}
+fitmodel <-  function(parameters,dat) {   # takes the parameter values and dataset as inputs
+  protrans <- parameters[1] # estimate parameter related to R0 (baseline transmission rate)
+  amp <- parameters[2] # estimate parameter related to seasonal amplitude
+  trans <- parameters[3] # estimate parameter related to seasonal peak timing
+  DMD <- parameters[4] # estimate parameter related to the duration of maternal immunity
+  report_ratio <- exp(parameters[5])
+  
+  b1 <- exp(amp) #ensure positive 
+  baseline.txn.rate <- exp(protrans) #ensure positive
+  phi <-  (2*pi*(exp(trans))) / (1+exp(trans)) # transform to its scale in the model
+  durx <- exp(DMD) #ensure positive
+
+   # Simulate the model with initial conditions and timesteps defined above, and parameter values from function call
+  results <- ode(y=yinit.vector, method = "ode45", t=ca_times,  
+               func=Novac_dynamics, 
+            parms=c(parmset,baseline.txn.rate=baseline.txn.rate,b1=b1,phi=phi,DurationMatImmunityDays=durx))
+  t0 <- nrow(rsv_ca)
+  burnN <- 23*12
+  St <- results[-c(1:burnN),-1]
+   
+  I1 <- St[,grep('I1', colnames(St))]
+   I2 <- St[,grep('I2', colnames(St))]
+   I3 <- St[,grep('I3', colnames(St))]
+   I4 <- St[,grep('I4', colnames(St))]
+   S1 <- St[,grep('S1', colnames(St))]
+   S2 <- St[,grep('S2', colnames(St))]
+   S3 <- St[,grep('S3', colnames(St))]
+   S0 <- St[,grep('S0', colnames(St))]
+     
+   hosp1 <- hosp1
+   hosp2 <- hosp2
+   hosp3 <- rep(0,13)
+   
+    beta <-  baseline.txn.rate/(parmset$dur.days1/30.44)/(sum(parmset$yinit.matrix)^(1-parmset$q))*parmset$c2# q depends on transmission type (whether depends on population density or not); c2 is the contact matrix
+
+    lambda1=matrix(0,nrow=t0,ncol=al)#Force of infection
+    for (t in 1:t0)
+    {lambda1[t,] <- as.vector((1+b1*cos(2*pi*(t-phi*12)/12))*((I1[t,]+rho1*I2[t,]+rho2*I3[t,]+rho2*I4[t,])%*%beta)/sum(St[t,]))}
+    
+   H1=matrix(0,nrow=t0,ncol=al)#Number of hospitalizations by age
+      for (i in 1:al){
+     H1[,i]=hosp1[i]*S0[,i]*lambda1[,i]+hosp2[i]*sigma1*S1[,i]*lambda1[,i]+hosp3[i]*sigma2*S2[,i]*lambda1[,i]+hosp3[i]*sigma3*S3[,i]*lambda1[,i]}
+  H <- report_ratio*rowSums(H1)
+    age_dist <- colSums(H1)
+    
+   LLall <- sum(dpois(x = dat, lambda =H, log = TRUE)) # fit to timeseries
+   LLmulti <- dmultinom(x= age_dist[1:8],prob = ca_agedist[1:8],log = T) # fit to age
+   
+
+   #total LL
+   LL <- LLall+LLmulti
+   
+   return(LL)
+}
+
+fitLL <- optim(par = c( 1.980926 ,-1.451419, -1.222989,  3.193689, -0.17
+),           # starting values for beta and gamma - you should get the same result no matter which values you choose here
+      fn = fitmodel,        # the distance function to optimise
+      dat = rsv_ca$rsv,         # the dataset to fit to ("dat" argument is passed to the function specified in fn)
+      control = list(fnscale=-1)) # the log likelihood is negative; here we maximize the log likelihood
+```
+
+
+### Refit model with estimated parameters
+```{r,eval=F}
+  baseline.txn.rate=exp(fitLL$par[1])
+  b1=exp(fitLL$par[2])
+  phi=(2*pi*(exp(fitLL$par[3]))) / (1+exp(fitLL$par[3]))
+  report_ratio <-  exp(fitLL$par[5])
+  hosp3 <- c(report_ratio*hosp2[1:12],report_ratio*hosp2[13]*3)
+  DurationMatImmunityDays=exp(fitLL$par[4])
+  report_ratio <- exp(parameters[5])
+  hosp3 <- exp(parameters[6])
+
+  output <- ode(y=yinit.vector, t=ca_times,  
+               func=Novac_dynamics, 
+            parms=c(parmset,baseline.txn.rate=baseline.txn.rate,b1=b1,phi=phi,DurationMatImmunityDays=DurationMatImmunityDays))
+   t0 <- nrow(rsv_ca)
+   al <- nrow(yinit)
+   output <- tail(output,t0)
+   St <- output[,-1]
+   I1 <- St[,grep('I1', colnames(St))]
+   I2 <- St[,grep('I2', colnames(St))]
+   I3 <- St[,grep('I3', colnames(St))]
+   I4 <- St[,grep('I4', colnames(St))]
+   S1 <- St[,grep('S1', colnames(St))]
+   S2 <- St[,grep('S2', colnames(St))]
+   S3 <- St[,grep('S3', colnames(St))]
+   S0 <- St[,grep('S0', colnames(St))]
+    beta <-  baseline.txn.rate/(parmset$dur.days1/30.44)/(sum(parmset$yinit.matrix)^(1-parmset$q))*parmset$c2# q depends on transmission type (whether depends on population density or not); c2 is the contact matrix
+ 
+    lambda1=matrix(0,nrow=t0,ncol=al)#Force of infection
+    for (t in 1:t0)
+    {lambda1[t,] <- as.vector((1+b1*cos(2*pi*(t-phi*12)/12))*((I1[t,]+rho1*I2[t,]+rho2*I3[t,]+rho2*I4[t,])%*%beta)/sum(St[t,]))}
+    
+   H1=matrix(0,nrow=t0,ncol=al)#Number of hospitalizations by age
+      for (i in 1:al){
+     H1[,i]=report_ratio*(hosp1[i]*S0[,i]*lambda1[,i]+hosp2[i]*sigma1*S1[,i]*lambda1[,i]+hosp3[i]*sigma2*S2[,i]*lambda1[,i]+hosp3*hosp2[i]*sigma3*S3[,i]*lambda1[,i])}
+  H <- rowSums(H1)
+  age_dist <- colSums(H1)
+   H <- data.frame(H)
+   H$date <- rsv_ca$amonthdate
+```
+
+## Real Data vs Model Fit
+### time series
+```{r}
+plot(rsv_ca$amonthdate,rsv_ca$rsv,xlab = "date",ylab="RSV cases",type="l")
+lines(H$date,H$H,col="red")
+```
+### Age distribution
+```{r}
+ # library
+library(ggplot2)
+library(tidyr)
+
+
+names(age_dist) <-  agenames
+
+# create a dataset
+agedist <- rbind(age_dist,ca_agedist)
+agedist <- data.frame(matrix(agedist,ncol=2,nrow=13,byrow = T))
+colnames(agedist) <- c("model","data")
+agedist$age <- c(1,2,3,4,5,6,7,8,9,10,11,12,13)
+
+data_long <- gather(agedist, group, proportion,model:data, factor_key=TRUE)
+
+ 
+# Grouped
+ggplot(data_long, aes(fill=group, y=proportion, x=age)) + 
+    geom_bar(position="dodge", stat="identity")+
+  scale_x_discrete(name ="AGE", 
+                    limits=agenames)+
+  theme_classic()
+```
+
+
+```{r}
+rsv_ca$months <- rep(c(7:12,1:6),8)
+library(tidyverse)
+hosp_cases <- rsv_ca %>%
+  group_by(months) %>%
+  summarise(rsv=as.integer(mean(rsv)))
+
+stan_initial_y <- as.integer(St[1,])
+stan_initial_para <- function()list(beta=7.249465,b1=0.23426488,phi=1.42886322,omega=0.04102234,hosp_ratio=0.03116693)
+saveRDS(stan_initial_y,"C:/Users/70914/Box/aim3/RSVtransmissionmodel/data_and_parms/staninput/stan_initial_y_ca.rds")
+saveRDS(stan_initial_para,"C:/Users/70914/Box/aim3/RSVtransmissionmodel/data_and_parms/staninput/stan_initial_para_ca.rds")
+data_msis_ca <- list(n_months=12,y0=stan_initial_y,t0=0,ts=c(1:12),N=sum(stan_initial_y),birthrate=c(0.015,rep(0,12)),um=um,rho1=rho1,rho2=rho2,gamma1=gamma1,gamma2=gamma2,gamma3=gamma3,sigma1=sigma1,sigma2=sigma2,sigma3=sigma3,hosp1=hosp1,hosp2=hosp2,hosp3=hosp3,c2=as.vector(contactUSAinfant),q=1,agegroups=13,hosp_age=as.vector(ca_agedist)[1:8],u=1/WidthAgeClassMonth,hosp_cases=hosp_cases$rsv)
+saveRDS(data_msis_ca,"C:/Users/70914/Box/aim3/RSVtransmissionmodel/data_and_parms/staninput/data_msis_ca.rds")
+
+data_msis_ca_9yrs <- list(n_months=nrow(rsv_ca),y0=stan_initial_y,t0=0,ts=c(1:nrow(rsv_ca)),N=sum(stan_initial_y),birthrate=c(0.015,rep(0,12)),um=um,rho1=rho1,rho2=rho2,gamma1=gamma1,gamma2=gamma2,gamma3=gamma3,sigma1=sigma1,sigma2=sigma2,sigma3=sigma3,hosp1=hosp1,hosp2=hosp2,hosp3=hosp3,c2=as.vector(contactUSAinfant),q=1,agegroups=13,hosp_age=as.vector(ca_agedist),u=1/WidthAgeClassMonth,hosp_cases=rsv_ca$rsv)
+saveRDS(data_msis_ca,"C:/Users/70914/Box/aim3/RSVtransmissionmodel/data_and_parms/staninput/data_msis_ca_9yrs.rds")
+```
