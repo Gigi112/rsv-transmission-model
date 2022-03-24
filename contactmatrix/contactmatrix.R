@@ -1,4 +1,5 @@
 ## read in matrix of effective contacts relevant to airborne infectious diseases
+## https://www.nature.com/articles/s41467-020-20544-y#Sec2
 USAcontactnew <- read.csv("https://raw.githubusercontent.com/mobs-lab/mixing-patterns/main/data/contact_matrices/United_States_country_level_M_overall_contact_matrix_85.csv",header = F)
 
 # visualize contact matrix
