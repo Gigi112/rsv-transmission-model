@@ -1,0 +1,308 @@
+---
+title: "MatVaccinealternative"
+author: "Zhe Zheng"
+date: "2/1/2022"
+output: html_document
+---
+
+```{r}
+library(rstan)
+library(data.table)
+library(scales)
+library(deSolve)
+library(tibble)
+## read in stan sample data
+stansample <- readRDS("C:/Users/70914/OneDrive/standata/stan/sample.rds")
+birthrate <- readRDS("C:/Users/70914/Box/aim3/reference/data/USbirth.rds")
+```
+
+```{r}
+# initialize a 13*13 matrix and a vector length 169 that contains 13 age groups and 13 transmission/vaccination compartments
+yinit.matrix= matrix(c(data_nj+data_ny+data_ca+data_wa),nrow=13,ncol=9) # change it to four states together
+dimnames(yinit.matrix)[[2]] <-c('M','S0','I1','S1','I2','S2','I3','S3','I4')
+dimnames(yinit.matrix)[[1]] <-c("<2m","2-3m","4-5m","6-7m","8-9m","10-11m","1Y","2-4Y","5-9Y","10-19Y","20-39Y","40-59Y","60Y+")
+yinit.frame= data.frame(yinit.matrix)
+# This model assumed that vaccinating pregnant women will provide additional protection to newborns that lower 
+# the susceptibility of the newborns when they come into contact with RSV 
+yinit.frame= add_column(yinit.frame,Mv = rep(0,13), .after = "M")
+# Vaccination may also provide additional benefit for the pregnant women as well, which may lower their susceptibility # and infectiousness when they are infected. This may provide indirect benefit to their newborns as well
+yinit.frame= add_column(yinit.frame,V1 = rep(0,13),.after = "S3")
+yinit.matrix=  as.matrix(yinit.frame)
+yinit.vector <- as.vector(yinit.matrix) #Vectorize the ynit matrix
+name.array <- array(NA, dim=dim(yinit.matrix))
+for(i in 1:dim(name.array)[1]){
+  for(j in 1:dim(name.array)[2]){
+      name.array[i,j] <- paste(dimnames(yinit.matrix)[[1]][i],dimnames(yinit.matrix)[[2]][j]  )
+    }
+  }
+
+name.vector <- as.vector(name.array)
+names(yinit.vector) <- name.vector
+```
+
+```{r}
+maternal_alternative <- function(t,y,parms, time.step='month'){
+  
+  States<-array(y, dim=dim(parms$yinit.matrix))
+  dimnames(States) <- dimnames(parms$yinit.matrix)
+  um=parms$um
+  
+  if(parms$time.step=='month'){
+    period=12
+    length.step=30.44 #days
+  }else if(parms$time.step=='week'){
+    period=52.1775
+    length.step=7 #days
+  }
+  
+  omega = 1/(parms$DurationMatImmunityDays/length.step)
+  v=parms$VacPro[t]*parms$cover # indicator function for when the vaccine will be administered * vaccine coverage
+  omega_v=1/(parms$DurationMVImmunityDays/length.step)  # waning rate of antibodies from maternal immunization
+  rrM=parms$rrM[t]
+  waningV=parms$waningV
+  
+  mu= 1/parms$WidthAgeClassMonth
+  if(parms$time.step=='week'){
+    mu= 1/(WidthAgeClassMonth*4.345)
+  }
+  
+  gamma1= 1/(parms$dur.days1/length.step)  #converts 1/days to 1/lenth.step
+  gamma2= 1/(parms$dur.days2/length.step)  
+  gamma3= 1/(parms$dur.days3/length.step)  
+  gamma4= gamma3  #??Is this right?? Yes, gamma3 stands for rate of recovery from subsequent infection
+  
+  #Pull out the states  for the model as vectors
+  M <-  States[,'M'] # newborns without vaccination of mothers 
+  Mv <-  States[,'Mv'] # newborns with vaccination of mothers 
+  S0 <-  States[,'S0']
+  I1 <-  States[,'I1']
+  
+  S1 <-  States[,'S1']
+  I2 <-  States[,'I2']
+  
+  S2 <-  States[,'S2']
+  I3 <-  States[,'I3']
+  
+  S3 <-  States[,'S3']
+  I4 <-  States[,'I4']
+  
+  V1 <-  States[,'V1'] # vaccination of pregnant women
+  
+  N.ages <- length(M)
+  
+  ###Check the standardization of beta and overall structure of lambda here
+  ####################
+  seasonal.txn <- (1+parms$b1*cos(2*pi*(t-parms$phi*period)/period))# seasonality waves
+  
+  beta <-  parms$baseline.txn.rate/(parms$dur.days1/length.step)/(sum(parms$yinit.matrix)^(1-parms$q))*parms$c2# q depends on transmission type (whether depends on population density or not); c2 is the contact matrix
+  
+  beta_a_i <- seasonal.txn * beta/sum(States)
+  infectiousN <- I1 + parms$rho1*I2 + parms$rho2*I3 + parms$rho2*I4
+  # may change based on how much will the vaccine reduce the infectiousness
+  
+  lambda <- infectiousN %*% beta_a_i 
+  lambda <- as.vector(lambda)
+  ##########?????????????????##########################  
+  
+  dy <- matrix(NA, nrow=N.ages, ncol=ncol(States))
+  colnames(dy) <- colnames(States)
+  
+  period.birth.rate <- log(parms$PerCapitaBirthsYear[t,]+1)/period #B=annual birth rate
+  
+  #https://journals.plos.org/plospathogens/article/file?id=10.1371/journal.ppat.1004591.s016&type=supplementary
+  #mu represents aging to the next class
+  #um is death rate
+  
+  Aging.Prop <- c(0,mu[1:(N.ages-1)])
+  
+  # newborns without vaccination of mothers is still protected from infections because of maternal immunity
+  dy[,'M'] <- (1-v)*period.birth.rate*sum(States) - 
+    (omega+(mu+um))*M +
+    Aging.Prop*c(0,M[1:(N.ages-1)]) 
+  
+  # newborns with vaccination of mothers is also protected from infections because of maternal immunity
+  dy[,'Mv'] <- v*period.birth.rate*sum(States) - 
+    (omega_v+(mu+um))*Mv +
+    Aging.Prop*c(0,Mv[1:(N.ages-1)])
+  
+  dy[,'S0'] <- omega*M +
+    omega_v*Mv-
+    lambda*S0 -
+    (mu + um)*S0 + 
+    Aging.Prop*c(0,S0[1:(N.ages-1)]) 
+  
+  dy[,'I1'] <-   lambda*S0 - 
+    (gamma1 + mu + um)*I1 + 
+    Aging.Prop*c(0,I1[1:(N.ages-1)]) 
+  
+  dy[,'S1'] <- gamma1*I1 - 
+    parms$sigma1*lambda*S1 - 
+    (mu+um)*S1 + 
+    Aging.Prop*c(0,S1[1:(N.ages-1)]) 
+  
+  dy[,'I2'] <- parms$sigma1*lambda*S1 - 
+    gamma2*I2-
+    (mu + um)*I2 + 
+    Aging.Prop*c(0,I2[1:(N.ages-1)]) 
+  
+  dy[,'S2'] <- gamma2*I2 - 
+    parms$sigma2*lambda*S2 -
+    (mu+um)*S2 + 
+    Aging.Prop*c(0,S2[1:(N.ages-1)]) 
+  
+  dy[,'I3'] <- parms$sigma2*lambda*S2 -
+    (gamma3 + mu+um)*I3 +  
+    Aging.Prop*c(0,I3[1:(N.ages-1)]) 
+  
+  dy[,'S3'] <- gamma3*I3 +  
+    gamma4*I4 +
+    waningV*V1-
+    parms$sigma3*lambda*S3 -
+    c(rep(0,10),v*period.birth.rate[1]*sum(States),rep(0,2)) -
+    (mu + um)*S3 + 
+    Aging.Prop*c(0,S3[1:(N.ages-1)]) 
+  
+  # pregnant women (age 20-39) will enter the V1 compartment; the number is equal to newborn (approximately because most of births are single live birth)
+  # I did not add any reduced susceptibility or infectiousness at this point and therefore V1 is no different than S3
+  dy[,'V1'] <- c(rep(0,10),v*period.birth.rate[1]*sum(States),rep(0,2)) -
+    rrM*parms$sigma3*lambda*V1 -
+    (mu + um)*V1 -
+    waningV*V1+ 
+    Aging.Prop*c(0,V1[1:(N.ages-1)]) 
+  
+  dy[,'I4'] <- parms$sigma3*lambda*S3+rrM*parms$sigma3*lambda*V1 - 
+    gamma4*I4 - 
+    (mu + um)*I4 + 
+    Aging.Prop*c(0,I4[1:(N.ages-1)]) 
+  
+  
+  derivs <- as.vector(dy)
+  
+  res <- list(derivs)
+  
+  return(res)
+}
+```
+
+```{r}
+# set a dataframe 
+Mat_output_alt <-array(dim=c(nsim,108,al))
+parametertrack <- as.data.frame(array(dim=c(nsim,10)))
+Vac_number_mat_alt <- c()
+Mat_agedist_alt <- as.data.frame(array(dim=c(nsim,al)))
+library(lhs)
+set.seed(42)
+h <- 1000 #choose the number of points to sample - scale up after
+lhs <- maximinLHS(h,1) 
+Dur_MatV <- c(150,210)
+Dur_MatV <- lhs[,1]*(Dur_MatV[2]-Dur_MatV[1])+Dur_MatV[1]
+
+my_times <- seq(1, 444, by = 1) # gives a sequence from start to end, year 2003-2040
+
+for(j in 1:nsim){
+  
+  maternal_risk <- params.set[j,5]
+  coverage <- params.set[j,4]
+  
+  baseline.txn.rate=params.set[j,6]
+  phi=params.set[j,7]
+  b1=params.set[j,8]
+  omega=params.set[j,9]
+  report_ratio=params.set[j,10]
+  
+  parms_mat_dynamic<-list(PerCapitaBirthsYear=as.matrix(birthrate), #  nation wide projected population birth/deaths and migration. Need to be a matrix
+            DurationMatImmunityDays=1/omega*30.44,
+            DurationMVImmunityDays=Dur_MatV[j],
+            VacPro=c(rep(0,264),rep(1,444-264)),# vaccination start at 2025
+            # seasonal vaccination strategies
+            rrM=c(rep(1,264),rep(maternal_risk,444-264)),
+            cover=coverage,
+            WidthAgeClassMonth=1/data_msis$u,
+            um=-0.0005,#projected country wide population growth rate
+            rho1=0.75,
+            rho2=0.51,
+            dur.days1=10,
+            dur.days2=7,
+            dur.days3=5,
+            yinit.matrix= yinit.matrix,
+            q=1,
+            sigma1=0.76,
+            sigma2=0.6,
+            sigma3=0.4,
+            time.step='month',
+            c2=contactmatrix,
+            b1=b1,
+            phi=phi,
+            baseline.txn.rate = baseline.txn.rate,
+            waningV=0.2029333# waning rate [3,6] months; [0.1691111,0.3382222]; or [2,5] months according to 87, 120 fitted days
+            )
+  
+  results <- ode(y=yinit.vector, t=my_times,  
+               func=maternal_alternative, 
+            parms=parms_mat_dynamic)
+  
+  RR=parms_mat_dynamic$RR
+  St <- results[,-1]
+  q=1
+   al=nrow(yinit.matrix)
+   c2=parms_mat_dynamic$c2
+   beta= parms_mat_dynamic$baseline.txn.rate/(parms_mat_dynamic$dur.days1/30.44)/(sum(yinit.matrix)^(1-q))*c2
+   b1= parms_mat_dynamic$b1
+   phi=parms_mat_dynamic$phi
+   rho1=parms_mat_dynamic$rho1
+   rho2=parms_mat_dynamic$rho2
+   sigma1=parms_mat_dynamic$sigma1
+   sigma2=parms_mat_dynamic$sigma2
+   sigma3=parms_mat_dynamic$sigma3
+   rrM=parms_mat_dynamic$rrM
+   birthrate=parms_mat_dynamic$PerCapitaBirthsYear
+   t0=tmax
+   I1 <- results[,grep('I1', colnames(results))]
+   I2 <- results[,grep('I2', colnames(results))]
+   I3 <- results[,grep('I3', colnames(results))]
+   I4 <- results[,grep('I4', colnames(results))]
+   V1 <- results[,grep('V1', colnames(results))]
+   S1 <- results[,grep('S1', colnames(results))]
+   S2 <- results[,grep('S2', colnames(results))]
+   S3 <- results[,grep('S3', colnames(results))]
+   S0 <- results[,grep('S0', colnames(results))]
+   lambda1=matrix(0,nrow=t0,ncol=al)#Force of infection
+    Vac_each_month <- rep(0,t0)
+    for (t in 1:t0)
+    {lambda1[t,] <- as.vector((1+b1*cos(2*pi*(t-phi*12)/12))*((I1[t,]+rho1*I2[t,]+rho2*I3[t,]+rho2*I4[t,])%*%beta)/sum(St[t,]))
+     Vac_each_month[t] <- parms_mat_dynamic$VacPro[t]*parms_mat_dynamic$cover*log(birthrate[t,1]+1)/12*sum(St[t,])
+    }
+   
+   H1=matrix(0,nrow=t0,ncol=al)#Number of hospitalizations by age
+   age_dist <- c()
+    for (t in 1:t0){
+   for (i in 1:al){ 
+     H1[t,i]=report_ratio*(hosp1[i]*S0[t,i]*lambda1[t,i]+hosp2[i]*sigma1*S1[t,i]*lambda1[t,i]+hosp3[i]*sigma2*S2[t,i]*lambda1[t,i]+hosp3[i]*sigma3*S3[t,i]*lambda1[t,i]+rrM[t]*hosp3[i]*sigma3*lambda1[t,i]*V1[t,i])
+   age_dist[i] <- sum(H1[337:348,i])}}
+   
+   #H <- rowSums(H1)
+   H <- H1[253:(252+108),]# the first 12 months was to make sure that different model produce the same baseline cases
+   Mat_agedist_alt[j,] <- age_dist/(agep*sum(St[340,]))*100000
+   
+   Vac_number_mat_alt[j] <- sum(Vac_each_month[253:(253+107)])
+   
+   Mat_output_alt[j,,] <-H
+     if(j %% 10==0) {
+      # Print on the screen some message
+      cat(paste0("percent: ", j/10, "%"))
+   }
+}
+```
+
+```{r}
+maternal_alternative_yearround <-matrix(nrow=8,ncol=3)
+for (i in 1:8) {
+ maternal_alternative_yearround[i,] <-
+round(quantile((1-rowSums(Mat_output_alt[,13:108,i])/rowSums(Novac_Hosp[,13:108,i]))*100,c(0.5,0.025,0.975)))
+}
+round(quantile((1-rowSums(Mat_output_alt[,85:96,1:8])/rowSums(Novac_Hosp[,85:96,1:8]))*100,c(0.5,0.025,0.975)))
+
+write.csv(maternal_alternative_yearround,"D:/RSVvac_output/tables/mat_alternative_yearround.csv")
+
+```
+

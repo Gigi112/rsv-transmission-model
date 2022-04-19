@@ -1,0 +1,181 @@
+---
+title: "monoclonal antibodies routine_catchup"
+author: "Zhe Zheng"
+date: "3/3/2022"
+output: html_document
+---
+```{r}
+library(rstan)
+library(data.table)
+library(scales)
+library(deSolve)
+library(tibble)
+```
+
+```{r}
+# equilibrium status of RSV epidemics in four states using parameter estimates from maximum likelihood estimates
+data_nj <- readRDS("C:/Users/70914/Box/aim3/RSVtransmissionmodel/data_and_parms/staninput/stan_initial_y_nj.rds")
+data_ny <- readRDS("C:/Users/70914/Box/aim3/RSVtransmissionmodel/data_and_parms/staninput/stan_initial_y_ny.rds")
+data_ca <- readRDS("C:/Users/70914/Box/aim3/RSVtransmissionmodel/data_and_parms/staninput/stan_initial_y_ca.rds")
+data_wa <- readRDS("C:/Users/70914/Box/aim3/RSVtransmissionmodel/data_and_parms/staninput/stan_initial_y_wa.rds")
+
+contactmatrix <- readRDS( 'C:/Users/70914/Box/aim3/RSVtransmissionmodel/data_and_parms/contactmatrix.rds')
+
+data_msis <- readRDS("C:/Users/70914/Box/aim3/RSVtransmissionmodel/data_and_parms/staninput/data_msis_nj_annual.rds")
+
+hosp1 <- data_msis$hosp1
+hosp2 <- data_msis$hosp2
+hosp3 <- data_msis$hosp3
+
+params.set <- readRDS("C:/Users/70914/Box/aim3/RSVtransmissionmodel/data_and_parms/effectinput/params_set.rds")
+
+birthrate <- readRDS("C:/Users/70914/Box/aim3/reference/data/USbirth.rds")
+```
+
+```{r}
+# initialize a 13*10 matrix and a vector length 130 that contains 13 age groups and 10 transmission/vaccination compartments
+yinit.matrix= matrix(c(data_nj+data_ny+data_ca+data_wa),nrow=13,ncol=9)
+dimnames(yinit.matrix)[[2]] <-c('M','S0','I1','S1','I2','S2','I3','S3','I4')
+dimnames(yinit.matrix)[[1]] <-c("<2m","2-3m","4-5m","6-7m","8-9m","10-11m","1Y","2-4Y","5-9Y","10-19Y","20-39Y","40-59Y","60Y+")
+yinit.frame= data.frame(yinit.matrix)
+# this model assumed that monoclonal antibodies provide prolong protection against RSV infections compared with maternal immunity
+yinit.frame <- yinit.frame %>% add_column(Pm = rep(0,13), .after = "M") %>%
+  add_column(P0 = rep(0,13), .after = "S0") %>%
+                add_column(P1 = rep(0,13), .after = "S1") %>% 
+                add_column(P2 = rep(0,13), .after = "S2") %>%
+                add_column(P3 = rep(0,13), .after = "S3")
+  
+yinit.matrix=  as.matrix(yinit.frame)
+yinit.vector <- as.vector(yinit.matrix) #Vectorize the ynit matrix
+name.array <- array(NA, dim=dim(yinit.matrix))
+for(i in 1:dim(name.array)[1]){
+  for(j in 1:dim(name.array)[2]){
+      name.array[i,j] <- paste(dimnames(yinit.matrix)[[1]][i],dimnames(yinit.matrix)[[2]][j]  )
+    }
+  }
+
+name.vector <- as.vector(name.array)
+names(yinit.vector) <- name.vector
+nsim=1000
+al <- length(dimnames(yinit.matrix)[[1]])
+```
+
+```{r}
+susceptible_infants_under6m <- array(NA, dim=c(3,5))
+susceptible_vector <- which(colnames(yinit.matrix)%in%c('M','S0','S1','S2','S3'))
+for(i in 1:3){
+      susceptible_infants_under6m[i,] <- paste(dimnames(yinit.matrix)[[1]][i],dimnames(yinit.matrix)[[2]][susceptible_vector])
+    }
+
+susceptible_infants_under6m <- as.vector(susceptible_infants_under6m)
+susceptible_infants_under6m
+
+my_times <- seq(1, 360, by = 1) # gives a sequence from start to end, year 2003-2040
+tmax=360
+```
+
+
+```{r}
+MAb_output <-array(dim=c(nsim,108,al))
+Vac_number_mabs <- c()
+MAb_agedist <-as.data.frame(array(dim=c(nsim,al)))
+source('C:/Users/70914/Box/aim3/RSVtransmissionmodel/RSV_metapop/VacModel/mAbs_seasonal_campaign.R')
+
+for(j in 1:nsim){
+  Dur_MAbs <- params.set[j,2]
+  coverage <- params.set[j,4]
+  
+  baseline.txn.rate=params.set[j,6]
+  b1=params.set[j,8]
+  phi=params.set[j,7]
+  omega=params.set[j,9]
+  hosp_ratio=params.set[j,10]
+
+ parms_MAb_seasoanl<-list(PerCapitaBirthsYear=as.matrix(birthrate[,1:13]),
+             DurationMatImmunityDays=1/omega*30.44,
+            DurationNirImmunityDays=Dur_MAbs,
+            VacPro_campaign=c(rep(0,264),rep(c(0,0,0,0,1,0,0,0,0,0,0,0),(360-264)/12)),
+                       # seasonal vaccination strategies
+             VacPro_routine= c(rep(0,264),rep(c(0,0,0,0,1,1,1,1,1,0,0,0),(360-264)/12)),
+            cover=coverage,
+            WidthAgeClassMonth=1/data_msis$u,
+            um=-0.0005,
+            rho1=0.75,
+            rho2=0.51,
+            dur.days1=10,
+            dur.days2=7,
+            dur.days3=5,
+            yinit.matrix= yinit.matrix,
+            q=1,
+            sigma1=0.76,
+            sigma2=0.6,
+            sigma3=0.4,
+            time.step='month',
+            c2=contactmatrix,
+            b1=b1,
+            phi=phi,
+            baseline.txn.rate = baseline.txn.rate
+            )
+
+results <- ode(y=yinit.vector, t=my_times,  
+               func=MAbs_campaign, 
+            parms=parms_MAb_seasoanl)
+
+St <- results[,-1]
+   q=1
+   c2=parms_MAb_seasoanl$c2
+   beta= parms_MAb_seasoanl$baseline.txn.rate/(parms_MAb_seasoanl$dur.days1/30.44)/(sum(yinit.matrix)^(1-q))*c2
+   b1= parms_MAb_seasoanl$b1
+   phi=parms_MAb_seasoanl$phi
+   rho1=parms_MAb_seasoanl$rho1
+   rho2=parms_MAb_seasoanl$rho2
+   sigma1=parms_MAb_seasoanl$sigma1
+   sigma2=parms_MAb_seasoanl$sigma2
+   sigma3=parms_MAb_seasoanl$sigma3
+   birthrate=parms_MAb_seasoanl$PerCapitaBirthsYear
+   t0=tmax
+   I1 <- results[,grep('I1', colnames(results))]
+   I2 <- results[,grep('I2', colnames(results))]
+   I3 <- results[,grep('I3', colnames(results))]
+   I4 <- results[,grep('I4', colnames(results))]
+   S1 <- results[,grep('S1', colnames(results))]
+   S2 <- results[,grep('S2', colnames(results))]
+   S3 <- results[,grep('S3', colnames(results))]
+   S0 <- results[,grep('S0', colnames(results))]
+   lambda1=matrix(0,nrow=t0,ncol=al)#Force of infection
+    for (t in 1:t0)
+    {lambda1[t,] <- as.vector((1+b1*cos(2*pi*(t-phi*12)/12))*((I1[t,]+rho1*I2[t,]+rho2*I3[t,]+rho2*I4[t,])%*%beta)/sum(St[t,]))
+    Vac_each_month[t] <- parms_MAb_seasoanl$cover*parms_MAb_seasoanl$VacPro_routine[t]*log(birthrate[t,1]+1)/12*sum(St[t,])+parms_MAb_seasoanl$cover*parms_MAb_seasoanl$VacPro_campaign[t]*sum(St[t,susceptible_infants_under6m])
+    }
+   
+   H1=matrix(0,nrow=t0,ncol=al)#Number of hospitalizations by age
+   age_dist <- c()
+   for (i in 1:al){
+     H1[,i]=hosp_ratio*(hosp1[i]*S0[,i]*lambda1[,i]+hosp2[i]*sigma1*S1[,i]*lambda1[,i]+hosp3[i]*sigma2*S2[,i]*lambda1[,i]+hosp3[i]*sigma3*S3[,i]*lambda1[,i])
+   age_dist[i] <- sum(H1[337:348,i])}
+   H <- rowSums(H1)
+
+    #H <- rowSums(H1)
+   H <- H1[253:(252+108),]# the first 12 months was to make sure that different model produce the same baseline cases
+    
+    Vac_number_mabs[j] <- sum(Vac_each_month[337:348])
+   MAb_agedist[j,] <- age_dist/(agep*sum(St[340,]))*100000
+   MAb_output[j,,] <-H
+     if(j %% 10==0) {
+      # Print on the screen some message
+      cat(paste0("percent: ", j/10, "%"))
+   }
+
+}
+
+```
+
+
+
+```{r}
+Hosp_avert_dose_MAb <- rowSums(Novac_Hosp[,85:96,1:7]-MAb_output[,85:96,1:7])/Vac_number_mabs
+round(quantile(Hosp_avert_dose_MAb*1000,c(0.5,0.025,0.975)),0)
+mAb_under2 <- rowSums(Novac_Hosp[,85:96,1:7]-MAb_output[,85:96,1:7])/(sum(St[340,grep(paste(under2_names,collapse="|"),colnames(St))]))
+round(quantile(mAb_under2,c(0.5,0.025,0.975))*100000,1)
+```
+

@@ -1,0 +1,401 @@
+---
+title: "seasonal"
+author: "Zhe Zheng"
+date: "3/30/2022"
+output: html_document
+---
+
+#initialize population
+```{r saveparms}
+# initialize a 13*13 matrix and a vector length 169 that contains 13 age groups and 13 transmission/vaccination compartments
+yinit.matrix= matrix(c(data_nj+data_ny+data_ca+data_wa),nrow=13,ncol=9) # change it to four states together
+dimnames(yinit.matrix)[[2]] <-c('M','S0','I1','S1','I2','S2','I3','S3','I4')
+dimnames(yinit.matrix)[[1]] <-c("<2m","2-3m","4-5m","6-7m","8-9m","10-11m","1Y","2-4Y","5-9Y","10-19Y","20-39Y","40-59Y","60Y+")
+yinit.frame= data.frame(yinit.matrix)
+# This model assumed that vaccinating pregnant women will provide additional protection to newborns that lower 
+# the susceptibility of the newborns when they come into contact with RSV 
+yinit.frame= add_column(yinit.frame,Mv = rep(0,13),Sv = rep(0,13), .after = "M")
+# Vaccination may also provide additional benefit for the pregnant women as well, which may lower their susceptibility # and infectiousness when they are infected. This may provide indirect benefit to their newborns as well
+yinit.frame= add_column(yinit.frame,V1 = rep(0,13),.after = "S3")
+yinit.matrix=  as.matrix(yinit.frame)
+yinit.vector <- as.vector(yinit.matrix) #Vectorize the ynit matrix
+name.array <- array(NA, dim=dim(yinit.matrix))
+for(i in 1:dim(name.array)[1]){
+  for(j in 1:dim(name.array)[2]){
+      name.array[i,j] <- paste(dimnames(yinit.matrix)[[1]][i],dimnames(yinit.matrix)[[2]][j]  )
+    }
+  }
+
+name.vector <- as.vector(name.array)
+names(yinit.vector) <- name.vector
+
+al <- length(dimnames(yinit.matrix)[[1]])
+```
+
+# seasonal maternal immunization
+```{r}
+# set a dataframe 
+Mat_output_seasonal <-array(dim=c(nsim,108,al))
+Vac_number_mat_seasonal <- c()
+source("C:/Users/70914/Box/aim3/RSVtransmissionmodel/Model_source/maternal_dynamic.R")
+ tmax=360
+my_times <- seq(1, tmax, by = 1) # gives a sequence from start to end, year 2003-2040
+
+for(j in 1:nsim){
+  
+  maternal_risk <- params.set[j,5]
+  coverage <- params.set[j,4]
+   
+  baseline.txn.rate=params.set[j,6]
+  phi=params.set[j,7]
+  b1=params.set[j,8]
+  omega=params.set[j,9]
+  hosp_ratio=params.set[j,10]
+  
+  parms_mat_dynamic<-list(PerCapitaBirthsYear=as.matrix(birthrate), #  nation wide projected population birth/deaths and migration. Need to be a matrix
+            DurationMatImmunityDays=1/omega*30.44,
+            VacPro=
+            # seasonal vaccination strategies
+             c(rep(0,264),rep(c(0,0,1,1 ,1,1,1,1,1,0,0,0),(tmax-264)/12)),
+            RR=c(rep(1,264),rep(relative_risk,tmax-264)),
+            rrM=c(rep(1,264),rep(maternal_risk,tmax-264)),
+            cover=coverage,
+            WidthAgeClassMonth=1/data_msis$u,
+            um=-0.0005,#projected country wide population growth rate
+            rho1=0.75,
+            rho2=0.51,
+            dur.days1=10,
+            dur.days2=7,
+            dur.days3=5,
+            yinit.matrix= yinit.matrix,
+            q=1,
+            sigma1=0.76,
+            sigma2=0.6,
+            sigma3=0.4,
+            time.step='month',
+            c2=contactmatrix,
+            b1=b1,
+            phi=phi,
+            baseline.txn.rate = baseline.txn.rate,
+            waningV= 0.2029333# waning rate [3,6] months; [0.1691111,0.3382222]; or [2,5] months according to 87, 120 fitted days
+            )
+  
+  results <- ode(y=yinit.vector, t=my_times,  
+               func=maternal_dynamic, 
+            parms=parms_mat_dynamic)
+  
+  RR=parms_mat_dynamic$RR
+  St <- results[,-1]
+  q=1
+   al=nrow(yinit.matrix)
+   c2=parms_mat_dynamic$c2
+   beta= parms_mat_dynamic$baseline.txn.rate/(parms_mat_dynamic$dur.days1/30.44)/(sum(parms_mat_dynamic$yinit.matrix)^(1-parms_mat_dynamic$q))*parms_mat_dynamic$c2
+   b1= parms_mat_dynamic$b1
+   phi=parms_mat_dynamic$phi
+   rho1=parms_mat_dynamic$rho1
+   rho2=parms_mat_dynamic$rho2
+   sigma1=parms_mat_dynamic$sigma1
+   sigma2=parms_mat_dynamic$sigma2
+   sigma3=parms_mat_dynamic$sigma3
+   rrM=parms_mat_dynamic$rrM
+   birthrate=parms_mat_dynamic$PerCapitaBirthsYear
+   t0=tmax
+   I1 <- results[,grep('I1', colnames(results))]
+   I2 <- results[,grep('I2', colnames(results))]
+   I3 <- results[,grep('I3', colnames(results))]
+   I4 <- results[,grep('I4', colnames(results))]
+   V1 <- results[,grep('V1', colnames(results))]
+   S1 <- results[,grep('S1', colnames(results))]
+   S2 <- results[,grep('S2', colnames(results))]
+   S3 <- results[,grep('S3', colnames(results))]
+   S0 <- results[,grep('S0', colnames(results))]
+   Sv <- results[,grep('Sv', colnames(results))]
+   lambda1=matrix(0,nrow=t0,ncol=al)#Force of infection
+    Vac_each_month_seasonal <- rep(0,t0)
+    for (t in 1:t0)
+    {lambda1[t,] <- as.vector((1+b1*cos(2*pi*(t-phi*12)/12))*((I1[t,]+rho1*I2[t,]+rho2*I3[t,]+rho2*I4[t,])%*%beta)/sum(St[t,]))
+     Vac_each_month_seasonal[t] <- parms_mat_dynamic$VacPro[t]*parms_mat_dynamic$cover*log(birthrate[t,1]+1)/12*sum(St[t,])
+    }
+   
+   H1=matrix(0,nrow=t0,ncol=al)#Number of hospitalizations by age
+   age_dist <- c()
+    for (t in 1:t0){
+   for (i in 1:al){ 
+     H1[t,i]=hosp_ratio*(hosp1[i]*S0[t,i]*lambda1[t,i]+hosp1[i]*Sv[t,i]*RR[t]*lambda1[t,i]+hosp2[i]*sigma1*S1[t,i]*lambda1[t,i]+hosp3[i]*sigma2*S2[t,i]*lambda1[t,i]+hosp3[i]*sigma3*S3[t,i]*lambda1[t,i]+rrM[t]*hosp3[i]*sigma3*lambda1[t,i]*V1[t,i])
+   age_dist[i] <- sum(H1[337:348,i])}}
+   
+   #H <- rowSums(H1)
+   H <- H1[253:(252+108),]# the first 12 months was to make sure that different model produce the same baseline cases
+     Vac_number_mat_seasonal[j] <- sum(Vac_each_month_seasonal[337:348])
+   
+   Mat_output_seasonal[j,,] <-H
+      if(j %% 10==0) {
+      # Print on the screen some message
+      cat(paste0("percent: ", j/10, "%"))
+   }
+}
+  
+```
+
+# initialize population for monoclonal antibodies model
+```{r}
+# initialize a 13*10 matrix and a vector length 130 that contains 13 age groups and 10 transmission/vaccination compartments
+yinit.matrix= matrix(c(data_nj+data_ny+data_ca+data_wa),nrow=13,ncol=9)
+dimnames(yinit.matrix)[[2]] <-c('M','S0','I1','S1','I2','S2','I3','S3','I4')
+dimnames(yinit.matrix)[[1]] <-c("<2m","2-3m","4-5m","6-7m","8-9m","10-11m","1Y","2-4Y","5-9Y","10-19Y","20-39Y","40-59Y","60Y+")
+yinit.frame= data.frame(yinit.matrix)
+# this model assumed that monoclonal antibodies provide prolong protection against RSV infections compared with maternal immunity
+yinit.frame= add_column(yinit.frame,P = rep(0,13), .after = "M")
+yinit.matrix=  as.matrix(yinit.frame)
+yinit.vector <- as.vector(yinit.matrix) #Vectorize the ynit matrix
+name.array <- array(NA, dim=dim(yinit.matrix))
+for(i in 1:dim(name.array)[1]){
+  for(j in 1:dim(name.array)[2]){
+      name.array[i,j] <- paste(dimnames(yinit.matrix)[[1]][i],dimnames(yinit.matrix)[[2]][j]  )
+    }
+  }
+
+name.vector <- as.vector(name.array)
+names(yinit.vector) <- name.vector
+
+al <- length(dimnames(yinit.matrix)[[1]])
+```
+
+# seasonal extended half-life monoclonal antibodies
+```{r}
+MAb_output_seasonal <-array(dim=c(nsim,108,al))
+Vac_number_mabs_seasonal <- c()
+source("C:/Users/70914/Box/aim3/RSVtransmissionmodel/Model_source/monoclonalantibodies_dynamic.R")
+for(j in 1:nsim){
+  Dur_MAbs <- params.set[j,2]
+  coverage <- params.set[j,4]
+  
+  baseline.txn.rate=params.set[j,6]
+  b1=params.set[j,8]
+  phi=params.set[j,7]
+  omega=params.set[j,9]
+  hosp_ratio=params.set[j,10]
+  
+  parms_MAb_Dynamics<-list(PerCapitaBirthsYear=as.matrix(birthrate[,1:13]),
+             DurationMatImmunityDays=1/omega*30.44,
+            DurationNirImmunityDays=Dur_MAbs,
+            VacPro=
+                       # seasonal vaccination strategies
+              c(rep(0,264),rep(c(0,0,1,1,1,1,1,1,1,0,0,0),(360-264)/12)),
+            cover=coverage,
+            WidthAgeClassMonth=1/data_msis$u,
+            um=-0.0005,
+            rho1=0.75,
+            rho2=0.51,
+            dur.days1=10,
+            dur.days2=7,
+            dur.days3=5,
+            yinit.matrix= yinit.matrix,
+            q=1,
+            sigma1=0.76,
+            sigma2=0.6,
+            sigma3=0.4,
+            time.step='month',
+            c2=contactmatrix,
+            b1=b1,
+            phi=phi,
+            baseline.txn.rate = baseline.txn.rate
+            )
+
+results <- ode(y=yinit.vector, t=my_times,  
+               func=MAbs_atbirth, 
+            parms=parms_MAb_Dynamics)
+  
+St <- results[,-1]
+   q=1
+   c2=parms_MAb_Dynamics$c2
+   beta= parms_MAb_Dynamics$baseline.txn.rate/(parms_MAb_Dynamics$dur.days1/30.44)/(sum(yinit.matrix)^(1-q))*c2
+   b1= parms_MAb_Dynamics$b1
+   phi=parms_MAb_Dynamics$phi
+   rho1=parms_MAb_Dynamics$rho1
+   rho2=parms_MAb_Dynamics$rho2
+   sigma1=parms_MAb_Dynamics$sigma1
+   sigma2=parms_MAb_Dynamics$sigma2
+   sigma3=parms_MAb_Dynamics$sigma3
+   birthrate=parms_MAb_Dynamics$PerCapitaBirthsYear
+   t0=tmax
+   lambda1=matrix(0,nrow=t0,ncol=al)#Force of infection
+   Vac_each_month_seasonal <- c( )
+    for (t in 1:t0)
+    {lambda1[t,] <- as.vector((1+b1*cos(2*pi*(t-phi*12)/12))*((St[t,(3*al+1):(4*al)]+rho1*St[t,(5*al+1):(6*al)]+rho2*St[t,(7*al+1):(8*al)]+rho2*St[t,(9*al+1):(10*al)])%*%beta)/sum(St[t,]))
+    Vac_each_month_seasonal[t] <- parms_MAb_Dynamics$cover*parms_MAb_Dynamics$VacPro[t]*log(birthrate[t,1]+1)/12*sum(St[t,])
+    } 
+   
+   H1=matrix(0,nrow=t0,ncol=al)#Number of hospitalizations by age
+   age_dist <- c()
+   for (i in 1:al){
+     H1[,i]=hosp_ratio*(hosp1[i]*St[,(2*al+i)]*lambda1[,i]+hosp2[i]*sigma1*St[,(4*al+i)]*lambda1[,i]+hosp3[i]*sigma2*St[,(6*al+i)]*lambda1[,i]+hosp3[i]*sigma3*St[,(8*al+i)]*lambda1[,i])
+   age_dist[i] <- sum(H1[337:348,i])}
+   H <- rowSums(H1)
+
+    #H <- rowSums(H1)
+   H <- H1[253:(252+108),]# the first 12 months was to make sure that different model produce the same baseline cases
+    
+    Vac_number_mabs_seasonal[j] <- sum(Vac_each_month_seasonal[337:348])
+     MAb_output_seasonal[j,,] <-H
+     if(j %% 10==0) {
+      # Print on the screen some message
+      cat(paste0("percent: ", j/10, "%"))
+   }
+
+}
+```
+
+# initialize population for live-attenuated vaccines
+```{r saveparms}
+# initialize a 13*11 matrix and a vector length 143 that contains 13 age groups and 11 transmission/vaccination compartments
+yinit.matrix= matrix(c(data_nj+data_ny+data_ca+data_wa),nrow=13,ncol=9)
+dimnames(yinit.matrix)[[2]] <-c('M','S0','I1','S1','I2','S2','I3','S3','I4')
+dimnames(yinit.matrix)[[1]] <-c("<2m","2-3m","4-5m","6-7m","8-9m","10-11m","1Y","2-4Y","5-9Y","10-19Y","20-39Y","40-59Y","60Y+")
+yinit.frame= data.frame(yinit.matrix)
+yinit.frame= add_column(yinit.frame,Iv = rep(0,13), .after = "I1") # Iv stands for just got vaccinated and can shed
+# vaccine virus to others
+yinit.frame= add_column(yinit.frame,Sv = rep(0,13), .after = "Iv") # Sv stands for a lower susceptibility to infections
+# because of vaccination
+yinit.matrix=  as.matrix(yinit.frame)
+yinit.vector <- as.vector(yinit.matrix) #Vectorize the ynit matrix
+name.array <- array(NA, dim=dim(yinit.matrix))
+for(i in 1:dim(name.array)[1]){
+  for(j in 1:dim(name.array)[2]){
+      name.array[i,j] <- paste(dimnames(yinit.matrix)[[1]][i],dimnames(yinit.matrix)[[2]][j]  )
+    }
+  }
+
+name.vector <- as.vector(name.array)
+names(yinit.vector) <- name.vector
+
+```
+
+# seasonal live-attenuated vaccines
+```{r}
+livevac_output_seasonal <-array(dim=c(nsim,108,al))
+Doses_livevax_seasonal <- c()
+Vac_number_livevax_seasonal <- c()
+source("C:/Users/70914/Box/aim3/RSVtransmissionmodel/Model_source/livevac_dynamics.R")
+
+for(j in 1:nsim){
+  relative_risk <- params.set[j,1]
+  Dur_MAbs_inv <- params.set[j,2]
+  immunogenic <- params.set[j,3]
+  coverage <- params.set[j,4]
+  age_dist <- c()
+ 
+  baseline.txn.rate=params.set[j,6]
+  b1=params.set[j,8]
+  phi=params.set[j,7]
+  omega=params.set[j,9]
+  hosp_ratio=params.set[j,10]
+  
+ parms_livevac_dynamics<-list(PerCapitaBirthsYear=birthrate[,1:13],
+            DurationMatImmunityDays=1/omega*30.44,
+            WidthAgeClassMonth=1/data_msis$u,
+            um=-0.0005,
+            rho1=0.75,
+            rho2=0.51,
+            VacPro=
+             c(rep(0,264),rep(c(0,0,1,1,1,1,1,1,1,0,0,0),(444-264)/12)),
+            Cfs=coverage,
+            Vfs=immunogenic,
+            dur.days1=10,
+            dur.days2=7,
+            dur.days3=5,
+            dur.days_v=5,
+            yinit.matrix= yinit.matrix,
+            RR=0.85,
+            q=1,
+            sigma1=0.76,
+            sigma2=0.6,
+            sigma3=0.4,
+            time.step='month',
+            c2=contactmatrix,
+            b1=b1,
+            phi=phi,
+            baseline.txn.rate = baseline.txn.rate
+            )
+
+results <- ode(y=yinit.vector, t=my_times,  
+               func=livevac_dynamics, 
+            parms=parms_livevac_dynamics)
+   
+   St <- results[,-1]
+   q=1
+   c2=parms_livevac_dynamics$c2
+   beta= parms_livevac_dynamics$baseline.txn.rate/(parms_livevac_dynamics$dur.days1/30.44)/(sum(yinit.matrix)^(1-q))*c2
+   b1= parms_livevac_dynamics$b1
+   phi=parms_livevac_dynamics$phi
+   rho1=parms_livevac_dynamics$rho1
+   rho2=parms_livevac_dynamics$rho2
+   sigma1=parms_livevac_dynamics$sigma1
+   sigma2=parms_livevac_dynamics$sigma2
+   sigma3=parms_livevac_dynamics$sigma3
+   t0=tmax
+   I1 <- results[,grep('I1', colnames(results))]
+   I2 <- results[,grep('I2', colnames(results))]
+   I3 <- results[,grep('I3', colnames(results))]
+   I4 <- results[,grep('I4', colnames(results))]
+   Iv <- results[,grep('Iv', colnames(results))]
+   S1 <- results[,grep('S1', colnames(results))]
+   S2 <- results[,grep('S2', colnames(results))]
+   S3 <- results[,grep('S3', colnames(results))]
+   S0 <- results[,grep('S0', colnames(results))]
+   Sv <- results[,grep('Sv', colnames(results))]
+   lambda1=matrix(0,nrow=t0,ncol=al)#Force of infection
+    for (t in 1:t0)
+    {lambda1[t,] <- as.vector((1+b1*cos(2*pi*(t-phi*12)/12))*((I1[t,]+rho1*I2[t,]+rho2*I3[t,]+rho2*I4[t,])%*%beta)/sum(St[t,]))
+    Doses_livevax_seasonal[t] <- data_msis$u[1]*coverage*parms_livevac_dynamics$VacPro[t]*sum(St[t,c('<2m M','<2m S0',"<2m S1","<2m S2","<2m S3")])
+    }
+   H1=matrix(0,nrow=t0,ncol=al)#Number of hospitalizations by age
+   for (i in 1:al){
+     H1[,i]=hosp_ratio*(hosp1[i]*S0[,i]*lambda1[,i]+hosp2[i]*sigma1*S1[,i]*lambda1[,i]+hosp3[i]*sigma2*S2[,i]*lambda1[,i]+hosp3[i]*sigma3*S3[,i]*lambda1[,i]+hosp2[i]*sigma1*lambda1[,i]*Sv[,i])
+     age_dist[i] <- sum(H1[337:348,i])
+   }
+   
+    Vac_number_livevax_seasonal[j] <- sum(Doses_livevax_seasonal[337:348]) 
+    
+   #H <- rowSums(H1)
+   H <- H1[253:(252+108),]
+   livevac_output_seasonal[j,,] <-H
+     if(j %% 10==0) {
+      # Print on the screen some message 
+      cat(paste0("percent: ", j/10, "%"))
+   }
+}
+```
+
+# read in year-round effectiveness and numbers of vaccine administered
+```{r}
+Novac_Hosp <- readRDS("C:/Users/70914/Box/aim3/reference/data/Novac_Hosp.rds")
+Mat_output <- readRDS("C:/Users/70914/Box/aim3/reference/data/Mat_year_round_widecoverage.rds")
+MAb_output <-readRDS("C:/Users/70914/Box/aim3/reference/data/MAb_year_round_widecoverage.rds")
+livevac_output <- readRDS("C:/Users/70914/Box/aim3/reference/data/livevac_year_round_widecoverage.rds")
+Vac_number_mat <- readRDS("C:/Users/70914/Box/aim3/reference/data/Vac_number_mat_year_round_widecoverage.rds")
+Vac_number_mabs <- readRDS("C:/Users/70914/Box/aim3/reference/data/Vac_number_mabs_year_round_widecoverage.rds")
+Doses_livevax <- readRDS("C:/Users/70914/Box/aim3/reference/data/Doses_livevax_year_round_widecoverage.rds")
+```
+
+# compare efficiency
+```{r}
+Mat_efficiency <- c()
+for (i in 1:6) {
+Mat_efficiency[i] <-round(mean((rowSums(Novac_Hosp[,85:96,i]-Mat_output_seasonal[,85:96,i])/Vac_number_mat_seasonal)/(rowSums(Novac_Hosp[,85:96,i]-Mat_output[,85:96,i])/Vac_number_mat)),2)
+}
+
+
+mAb_efficiency <- c()
+for (i in 1:6) {
+mAb_efficiency[i] <-round(mean((rowSums(Novac_Hosp[,85:96,i]-MAb_output_seasonal[,85:96,i])/Vac_number_mat_seasonal)/(rowSums(Novac_Hosp[,85:96,i]-MAb_output[,85:96,i])/Vac_number_mabs)),2)
+}
+
+
+livevac_efficiency <- c()
+for (i in 1:6) {
+livevac_efficiency[i] <-round(mean((rowSums(Novac_Hosp[,85:96,i]-livevac_output_seasonal[,85:96,i])/Vac_number_livevax_seasonal)/(rowSums(Novac_Hosp[,85:96,i]-livevac_output[,85:96,i])/Vac_number_livevax)),2)
+}
+
+```
+

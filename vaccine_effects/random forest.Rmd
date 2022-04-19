@@ -1,0 +1,272 @@
+---
+title: "Random forest"
+author: "ZHE ZHENG"
+date: "4/5/2022"
+output: html_document
+---
+
+# read in output data
+```{r}
+Novac_Hosp <- readRDS("C:/Users/70914/Box/aim3/reference/data/Novac_Hosp.rds")
+Mat_output <- readRDS("C:/Users/70914/Box/aim3/reference/data/Mat_year_round_widecoverage.rds")
+MAb_output <-readRDS("C:/Users/70914/Box/aim3/reference/data/MAb_year_round_widecoverage.rds")
+livevac_output <- readRDS("C:/Users/70914/Box/aim3/reference/data/livevac_year_round_widecoverage.rds")
+Vac_number_mat <- readRDS("C:/Users/70914/Box/aim3/reference/data/Vac_number_mat_year_round_widecoverage.rds")
+Vac_number_mabs <- readRDS("C:/Users/70914/Box/aim3/reference/data/Vac_number_mabs_year_round_widecoverage.rds")
+Doses_livevax <- readRDS("C:/Users/70914/Box/aim3/reference/data/Doses_livevax_year_round_widecoverage.rds")
+```
+
+# per-dose effectiveness
+```{r}
+# (#hosp without vac- #hosp with vac)/ # vac
+Hosp_avert_dose_Mat <- rowSums(Novac_Hosp[,85:96,]-Mat_output[,85:96,])/Vac_number_mat
+
+Hosp_avert_dose_MAb <- rowSums(Novac_Hosp[,85:96,]-MAb_output[,85:96,])/Vac_number_mabs
+
+Hosp_avert_dose_livevax <- rowSums(Novac_Hosp[,85:96,]-livevac_output[,85:96,])/Doses_livevax
+
+round(quantile(Hosp_avert_dose_Mat*1000,c(0.5,0.025,0.975)))
+
+round(quantile(Hosp_avert_dose_MAb*1000,c(0.5,0.025,0.975)))
+
+round(quantile(Hosp_avert_dose_livevax*1000,c(0.5,0.025,0.975)))
+
+```
+
+## random forest 
+```{r}
+## read in required packages
+library(randomForest)
+library(datasets)
+library(caret)
+library(party)
+library(tidyverse)
+library(scales)
+  
+## create data frame for random forest
+rf_df_1 <- data.frame("hospitalizations averted"=Hosp_avert_dose_Mat,"transmission rate"=params.set[,6],"amplitude"=params.set[,8],"phase"=params.set[,7],"maternal immunity"=params.set[,9],"report ratio"=params.set[,10],"RR in infants"=params.set[,1],"coverage"=params.set[,4],"RR in mothers"=params.set[j,3])
+set.seed(112)
+ind <- sample(2, nrow(rf_df_1), replace = TRUE, prob = c(2/3, 1/3))
+train <- rf_df_1[ind==1,]
+test <- rf_df_1[ind==2,]
+```
+
+```{r}
+oob.err<-double(8)
+test.err<-double(8)
+
+#mtry is no of Variables randomly chosen at each split
+for(mtry in 1:8) 
+{
+  rf=randomForest(hospitalizations.averted~., data =rf_df_1 , subset = ind==1,mtry=mtry,ntree=400) 
+  oob.err[mtry] = rf$mse[400] #Error of all Trees fitted
+  
+  pred<-predict(rf,test) #Predictions on Test Set for each Tree
+  test.err[mtry]= with(test, mean( (test$hospitalizations.averted - pred)^2)) #Mean Squared Test Error
+  
+  cat(mtry," ")
+  
+}
+
+matplot(1:mtry , cbind(oob.err,test.err), pch=19 , col=c("red","blue"),type="b",ylab="Mean Squared Error",xlab="Number of Predictors Considered at each Split")
+legend("topright",legend=c("Out of Bag Error","Test Error"),pch=19, col=c("red","blue"))
+```
+
+
+```{r}
+rf1 <- cforest(
+  hospitalizations.averted~.,
+  data = train,
+  control = cforest_unbiased(mtry = 4, ntree = 400)
+)
+
+mat_vac_importance <- varimp(rf1,  conditional = T)
+mat_vac_importance<- data.frame(Feature=c("transmission parameter","amplitude","peak timing","maternal immunity","report ratio","RR in infants","coverage","RR in mother"),value=mat_vac_importance)
+
+mat_vac_importance$scaled.value <- rescale(mat_vac_importance$value, from = c(min(mat_vac_importance$value), max(mat_vac_importance$value)), to = c(0, 100))
+  
+plot_mat <- mat_vac_importance %>%
+  arrange(value) %>%    # First sort by value
+   mutate(Feature=factor(Feature, levels=Feature)) %>%
+  ggplot( aes(x=Feature, y=scaled.value)) +
+    geom_segment( aes(xend=Feature, yend=0)) +
+    geom_point( size=2, color="orange") +
+    coord_flip() +
+    theme_classic() +
+    xlab("") +
+  ylab("Relative Importance")
+```
+
+
+```{r}
+## create data frame for random forest
+rf_df_2 <- data.frame("hospitalizations averted"=Hosp_avert_dose_MAb,"transmission rate"=params.set[,6],"amplitude"=params.set[,8],"phase"=params.set[,7],"maternal immunity"=params.set[,9],"report ratio"=params.set[,10],"duration of MAbs"=params.set[,2],"coverage"=params.set[,4])
+
+#,VacSeasonality=params.set[,5]
+
+set.seed(112)
+ind <- sample(2, nrow(rf_df_2), replace = TRUE, prob = c(2/3, 1/3))
+train <- rf_df_2[ind==1,]
+test <- rf_df_2[ind==2,]
+
+oob.err<-double(7)
+test.err<-double(7)
+
+#mtry is no of Variables randomly chosen at each split
+for(mtry in 1:7) 
+{
+  rf=randomForest(hospitalizations.averted~., data =rf_df_2 , subset = ind==1,mtry=mtry,ntree=400) 
+  oob.err[mtry] = rf$mse[400] #Error of all Trees fitted
+  
+  pred<-predict(rf,test) #Predictions on Test Set for each Tree
+  test.err[mtry]= with(test, mean( (test$hospitalizations.averted - pred)^2)) #Mean Squared Test Error
+  
+  cat(mtry," ")
+  
+}
+
+matplot(1:mtry , cbind(oob.err,test.err), pch=19 , col=c("red","blue"),type="b",ylab="Mean Squared Error",xlab="Number of Predictors Considered at each Split")
+legend("topright",legend=c("Out of Bag Error","Test Error"),pch=19, col=c("red","blue"))
+```
+
+```{r}
+rf2 <- cforest(
+  hospitalizations.averted~.,
+  data = train,
+  control = cforest_unbiased(mtry = 4, ntree = 200)
+)
+
+mab_importance <- varimp(rf2,  conditional = T)
+mabimportance<- data.frame(Feature=c("transmission parameter","amplitude","peak timing","maternal immunity","report ratio","duration of MAbs","coverage"),value=mab_importance)
+
+
+mabimportance$scaled.value <- rescale(mabimportance$value, from = c(min(mabimportance$value), max(mabimportance$value)), to = c(0, 100))
+  
+plot_mab <- mabimportance %>%
+  arrange(value) %>%    # First sort by value
+   mutate(Feature=factor(Feature, levels=Feature)) %>%
+  ggplot( aes(x=Feature, y=scaled.value)) +
+    geom_segment( aes(xend=Feature, yend=0)) +
+    geom_point( size=2, color="orange") +
+    coord_flip() +
+    theme_classic() +
+    xlab("") +
+  ylab("Relative Importance")
+```
+
+
+
+
+```{r}
+## create data frame for random forest
+rf_df_3 <- data.frame("hospitalizations averted"=Hosp_avert_dose_livevax,"transmission rate"=params.set[,6],"amplitude"=params.set[,8],"phase"=params.set[,7],"maternal immunity"=params.set[,9],"hospitalization ratio"=params.set[,10],"immunogenic"=params.set[,3],"coverage"=params.set[,4])
+
+set.seed(112)
+ind <- sample(2, nrow(rf_df_3), replace = TRUE, prob = c(2/3, 1/3))
+train <- rf_df_3[ind==1,]
+test <- rf_df_3[ind==2,]
+
+oob.err<-double(7)
+test.err<-double(7)
+
+#mtry is no of Variables randomly chosen at each split
+for(mtry in 1:7) 
+{
+  rf=randomForest(hospitalizations.averted~., data =rf_df_3 , subset = ind==1,mtry=mtry,ntree=400) 
+  oob.err[mtry] = rf$mse[400] #Error of all Trees fitted
+  
+  pred<-predict(rf,test) #Predictions on Test Set for each Tree
+  test.err[mtry]= with(test, mean( (test$hospitalizations.averted - pred)^2)) #Mean Squared Test Error
+  
+  cat(mtry," ")
+  
+}
+
+matplot(1:mtry , cbind(oob.err,test.err), pch=19 , col=c("red","blue"),type="b",ylab="Mean Squared Error",xlab="Number of Predictors Considered at each Split")
+legend("topright",legend=c("Out of Bag Error","Test Error"),pch=19, col=c("red","blue"))
+```
+
+```{r} 
+set.seed(112)
+
+rf3 <- cforest(
+  hospitalizations.averted~.,
+  data = train,
+  control = cforest_unbiased(mtry = 4, ntree = 400)
+)
+
+live_vac_importance <- varimp(rf3,  conditional = T)
+ live_vac_importance<- data.frame(Feature=c("transmission parameter","amplitude","peak timing","maternal immunity","report ratio","immunogenicity","coverage"),value=live_vac_importance)
+
+library(scales)
+live_vac_importance$scaled.value <-  rescale(live_vac_importance$value, from = c(min(live_vac_importance$value), max(live_vac_importance$value)), to = c(0, 100))
+  
+plot_vac <- live_vac_importance %>%
+  arrange(value) %>%    # First sort by value
+   mutate(Feature=factor(Feature, levels=Feature)) %>%
+  ggplot( aes(x=Feature, y=scaled.value)) +
+    geom_segment( aes(xend=Feature, yend=0)) +
+    geom_point( size=2, color="orange") +
+    coord_flip() +
+    theme_classic() +
+    xlab("") +
+  ylab("Relative Importance")
+
+```
+
+```{r}
+Figure4A <- data.frame(Feature=c("transmission rate","amplitude","phase","maternal immunity","reporting fraction", "RR in infants","coverage","RR in mothers"),value= mat_vac_importance[,"value"])
+Figure4A$scaled.value <- rescale(Figure4A$value, from = c(min(Figure4A$value), max(Figure4A$value)), to = c(0, 100))
+  
+Figure4A <- Figure4A %>%
+  arrange(value) %>%    # First sort by value
+   mutate(Feature=factor(Feature, levels=Feature)) %>%
+  ggplot( aes(x=Feature, y=scaled.value)) +
+    geom_segment( aes(xend=Feature, yend=0)) +
+    geom_point( size=2, color="orange") +
+    coord_flip() +
+    theme_classic() +
+    xlab("") +
+  ylab("Relative Importance")
+
+
+Figure4B <- data.frame(Feature=c("transmission rate","amplitude","phase","maternal immunity","reporting fraction", "duration of MAbs","coverage"),value=mabimportance[,"value"])
+Figure4B$scaled.value <- rescale(Figure4B$value, from = c(min(Figure4B$value), max(Figure4B$value)), to = c(0, 100))
+  
+Figure4B <- Figure4B %>%
+  arrange(value) %>%    # First sort by value
+   mutate(Feature=factor(Feature, levels=Feature)) %>%
+  ggplot( aes(x=Feature, y=scaled.value)) +
+    geom_segment( aes(xend=Feature, yend=0)) +
+    geom_point( size=2, color="orange") +
+    coord_flip() +
+    theme_classic() +
+    xlab("") +
+  ylab("Relative Importance")
+
+Figure4C <- data.frame(Feature=c("transmission rate","amplitude","phase","maternal immunity","reporting fraction", "immunogenicity ","coverage"),value=live_vac_importance[,"value"])
+Figure4C$scaled.value <- rescale(Figure4C$value, from = c(min(Figure4C$value), max(Figure4C$value)), to = c(0, 100))
+  
+Figure4C <- Figure4C %>%
+  arrange(value) %>%    # First sort by value
+   mutate(Feature=factor(Feature, levels=Feature)) %>%
+  ggplot( aes(x=Feature, y=scaled.value)) +
+    geom_segment( aes(xend=Feature, yend=0)) +
+    geom_point( size=2, color="orange") +
+    coord_flip() +
+    theme_classic() +
+    xlab("") +
+  ylab("Relative Importance")
+```
+
+```{r}
+library(cowplot)
+Figure4 <- plot_grid( 
+  Figure4A, Figure4B,Figure4C,
+  labels = "AUTO", ncol = 3
+)
+tiff("D:/RSVvac_output/figures/Figure4_cforest_0411.tiff",res=300,width = 3000, height = 1600,compression = "lzw")
+Figure4
+dev.off()
+```
+
