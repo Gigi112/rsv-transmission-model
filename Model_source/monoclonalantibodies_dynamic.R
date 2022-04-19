@@ -1,4 +1,4 @@
-Novac_dynamics <- function(t,y,parms, time.step='month'){
+MAbs_atbirth <- function(t,y,parms, time.step='month'){
   
   States<-array(y, dim=dim(parms$yinit.matrix))
   dimnames(States) <- dimnames(parms$yinit.matrix)
@@ -12,7 +12,10 @@ Novac_dynamics <- function(t,y,parms, time.step='month'){
     length.step=7 #days
   }
   
-  omega = 1/(parms$DurationMatImmunityDays/length.step)
+  omega = 1/(parms$DurationMatImmunityDays/length.step) # waning rate of maternal immunity
+  omega_v=1/(parms$DurationNirImmunityDays/length.step)  # waning rate of monoclonal antibodies
+  v=parms$VacPro[t] #VacPro is a vector, like birthrate data, 1 when vaccine was administrated, 0 otherwise
+  cover=parms$cover # percent of coverage; between 0-1; should be informed by Pediatric vaccine coverage
   
   mu= 1/parms$WidthAgeClassMonth
   if(parms$time.step=='week'){
@@ -26,6 +29,7 @@ Novac_dynamics <- function(t,y,parms, time.step='month'){
   
   #Pull out the states  for the model as vectors
   M <-  States[,'M']
+  P <-  States[,'P'] # the infants that receive monoclonal antibodies at birth
   S0 <-  States[,'S0']
   I1 <-  States[,'I1']
   
@@ -40,6 +44,7 @@ Novac_dynamics <- function(t,y,parms, time.step='month'){
   
   N.ages <- length(M)
   
+  ###Check the standardization of beta and overall structure of lambda here
   ####################
   seasonal.txn <- (1+parms$b1*cos(2*pi*(t-parms$phi*period)/period))# seasonality waves
   
@@ -57,7 +62,7 @@ Novac_dynamics <- function(t,y,parms, time.step='month'){
   
   lambda <- infectiousN %*% beta_a_i 
   lambda <- as.vector(lambda)
-  ##########transmission dynamics##########################  
+  ##########?????????????????##########################  
   
   dy <- matrix(NA, nrow=N.ages, ncol=ncol(States))
   colnames(dy) <- colnames(States)
@@ -66,19 +71,28 @@ Novac_dynamics <- function(t,y,parms, time.step='month'){
   
   #https://journals.plos.org/plospathogens/article/file?id=10.1371/journal.ppat.1004591.s016&type=supplementary
   #mu represents aging to the next class
-  #um is death rate/emigration; adjust it to reproduce population growth
+  #um is death rate
   
   Aging.Prop <- c(0,mu[1:(N.ages-1)])
   
-  dy[,'M'] <- period.birth.rate*sum(States) - 
+  # infants who do not receive monoclonal antibodies will be protected by maternal antibodies
+  # v is an indicator function for vaccine administrations; will be useful when consider year-round strategy vs seasonal strategy
+  # cover indicates the percentage coverage of vaccination; comes from pediatric vaccination coverage data
+  dy[,'M'] <- (1-v*cover)*period.birth.rate*sum(States) - 
     (omega+(mu+um))*M +
     Aging.Prop*c(0,M[1:(N.ages-1)]) 
   
-  dy[,'S0'] <- omega*M -
-    lambda*S0 - 
-    (mu + um)*S0 + 
-    Aging.Prop*c(0,S0[1:(N.ages-1)])
+  # infants who do receive monoclonal antibodies will be protected by MAbs
+  dy[,'P'] <- v*cover*period.birth.rate*sum(States) - 
+    (omega_v+(mu+um))*P + # omega_v should be smaller than omega because MAbs has a longer protection period
+    Aging.Prop*c(0,P[1:(N.ages-1)]) 
   
+  dy[,'S0'] <- omega*M+omega_v*P - # After either of the immunity wanes, infants become susceptible to infections
+    lambda*S0 -
+    (mu + um)*S0 + 
+    Aging.Prop*c(0,S0[1:(N.ages-1)]) 
+  
+  # the rest is the same as the original RSV transmission model
   dy[,'I1'] <-   lambda*S0 - 
     (gamma1 + mu + um)*I1 + 
     Aging.Prop*c(0,I1[1:(N.ages-1)]) 

@@ -1,4 +1,4 @@
-Novac_dynamics <- function(t,y,parms, time.step='month'){
+Novac_cohort <- function(t,y,parms, time.step='month'){
   
   States<-array(y, dim=dim(parms$yinit.matrix))
   dimnames(States) <- dimnames(parms$yinit.matrix)
@@ -41,22 +41,7 @@ Novac_dynamics <- function(t,y,parms, time.step='month'){
   N.ages <- length(M)
   
   ####################
-  seasonal.txn <- (1+parms$b1*cos(2*pi*(t-parms$phi*period)/period))# seasonality waves
-  
-  # baseline.txn.rate is the probability of transmission given contact per capita
-  # (parms$dur.days1/30.44) is the duration of infectiousness of primary infection
-  # q depends on transmission type (whether depends on population density or not)
-  # density (q=0) vs frequency-dependent (q=1) transmission
-  # c2 is the contact matrix 
-  # beta is transimissibility per unit time
-  transmission_unittime <-  parms$baseline.txn.rate/(parms$dur.days1/length.step)
-  beta=transmission_unittime*parms$c2
-  
-  beta_a_i <- seasonal.txn * beta/(sum(States)^parms$q)
-  infectiousN <- I1 + parms$rho1*I2 + parms$rho2*I3 + parms$rho2*I4
-  
-  lambda <- infectiousN %*% beta_a_i 
-  lambda <- as.vector(lambda)
+  lambda <- parms$lambda[t,]
   ##########transmission dynamics##########################  
   
   dy <- matrix(NA, nrow=N.ages, ncol=ncol(States))
