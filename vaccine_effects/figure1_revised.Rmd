@@ -1,0 +1,164 @@
+---
+title: "plot_revise"
+author: "ZHE ZHENG"
+date: '2022-08-01'
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+Mat_mean_by_age <- as.data.frame(colMeans(Mat_output))
+Mat_inc_by_age <- as.data.frame(matrix(NA,nrow = 108,ncol = 13))
+for (i in 1:108) {
+Mat_inc_by_age[i,] <-  Mat_mean_by_age[i,]/(agep*sum(St[252+i,]))*100000
+}
+names(Mat_inc_by_age) <- factor(c("<2m","2-3m","4-5m","6-7m","8-9m","10-11m","1Y","2-4Y","5-9Y","10-19Y","20-39Y","40-59Y","60Y+"),levels = c("<2m","2-3m","4-5m","6-7m","8-9m","10-11m","1Y","2-4Y","5-9Y","10-19Y","20-39Y","40-59Y","60Y+"))
+Mat_inc_by_age <- Mat_inc_by_age[,c("<2m","2-3m","4-5m","6-7m","8-9m","10-11m","1Y","2-4Y")]
+Mat_inc_by_age$year <- rep(0:8,each=12)
+Mat_inc_by_age_yearsum <- Mat_inc_by_age %>%
+group_by(year) %>%
+summarise(across(everything(), list(sum)))
+
+Mat_inc_by_age_yearsum <- Mat_inc_by_age %>%
+group_by(year) %>%
+summarise(across(everything(), list(sum)))
+colnames(Mat_inc_by_age_yearsum) <- c("year","0-1m","2-3m","4-5m","6-7m","8-9m","10-11m","1y","2-4y")
+effectiveness_pred <- reshape2::melt(Mat_inc_by_age_yearsum, id.vars = c("year"), variable.name = "age")
+
+Figure1SA <-ggplot(data=effectiveness_pred,aes(x = year, y =value,color =age)) +
+geom_line() +
+    ylim(0,4000)+
+ylab("RSV hospitalizations per 100000 people")+
+scale_x_continuous("Years since the introduction of the intervention",breaks = seq(0,8,1))+
+scale_color_brewer(type = "qual",palette = 7,name="Age group")+
+  geom_point()+
+theme_classic()+ theme(text= element_text(size = 14)) 
+
+```
+
+```{r}
+library(tidyverse)
+MAb_mean_by_age <- as.data.frame(colMeans(MAb_output))
+MAb_inc_by_age <- as.data.frame(matrix(NA,nrow = 108,ncol = 13))
+for (i in 1:108) {
+MAb_inc_by_age[i,] <-  MAb_mean_by_age[i,]/(agep*sum(St[252+i,]))*100000
+}
+names(MAb_inc_by_age) <- factor(c("<2m","2-3m","4-5m","6-7m","8-9m","10-11m","1Y","2-4Y","5-9Y","10-19Y","20-39Y","40-59Y","60Y+"),levels = c("<2m","2-3m","4-5m","6-7m","8-9m","10-11m","1Y","2-4Y","5-9Y","10-19Y","20-39Y","40-59Y","60Y+"))
+MAb_inc_by_age <- MAb_inc_by_age[,c("<2m","2-3m","4-5m","6-7m","8-9m","10-11m","1Y","2-4Y")]
+MAb_inc_by_age$year <- rep(0:8,each=12)
+MAb_inc_by_age_yearsum <- MAb_inc_by_age %>%
+group_by(year) %>%
+summarise(across(everything(), list(sum)))
+
+MAb_inc_by_age_yearsum <- MAb_inc_by_age %>%
+group_by(year) %>%
+summarise(across(everything(), list(sum)))
+colnames(MAb_inc_by_age_yearsum) <- c("year","0-1m","2-3m","4-5m","6-7m","8-9m","10-11m","1y","2-4y")
+effectiveness_pred <- reshape2::melt(MAb_inc_by_age_yearsum, id.vars = c("year"), variable.name = "age")
+
+Figure1SB <-ggplot(data=effectiveness_pred,aes(x = year, y =value,color =age)) +
+geom_line() +
+    ylim(0,4000)+
+ylab( "RSV hospitalizations per 100000 people")+
+scale_x_continuous("Years since the introduction of the intervention",breaks = seq(0,8,1))+
+scale_color_brewer(type = "qual",palette = 7,name="Age group")+
+  geom_point()+
+theme_classic()+ theme(text= element_text(size = 14)) 
+
+```
+
+```{r}
+library(tidyverse)
+livevac_mean_by_age <- as.data.frame(colMeans(livevac_output))
+livevac_inc_by_age <- as.data.frame(matrix(NA,nrow = 108,ncol = 13))
+for (i in 1:108) {
+livevac_inc_by_age[i,] <-  livevac_mean_by_age[i,]/(agep*sum(St[252+i,]))*100000
+}
+names(livevac_inc_by_age) <- factor(c("<2m","2-3m","4-5m","6-7m","8-9m","10-11m","1Y","2-4Y","5-9Y","10-19Y","20-39Y","40-59Y","60Y+"),levels = c("<2m","2-3m","4-5m","6-7m","8-9m","10-11m","1Y","2-4Y","5-9Y","10-19Y","20-39Y","40-59Y","60Y+"))
+livevac_inc_by_age <- livevac_inc_by_age[,c("<2m","2-3m","4-5m","6-7m","8-9m","10-11m","1Y","2-4Y")]
+livevac_inc_by_age$year <- rep(0:8,each=12)
+livevac_inc_by_age_yearsum <- livevac_inc_by_age %>%
+group_by(year) %>%
+summarise(across(everything(), list(sum)))
+
+livevac_inc_by_age_yearsum <- livevac_inc_by_age %>%
+group_by(year) %>%
+summarise(across(everything(), list(sum)))
+colnames(livevac_inc_by_age_yearsum) <- c("year","0-1m","2-3m","4-5m","6-7m","8-9m","10-11m","1y","2-4y")
+effectiveness_pred <- reshape2::melt(livevac_inc_by_age_yearsum, id.vars = c("year"), variable.name = "age")
+
+Figure1SC <-ggplot(data=effectiveness_pred,aes(x = year, y =value,color =age)) +
+geom_line() +
+  ylim(0,4000)+
+ylab( "RSV hospitalizations per 100000 people")+
+scale_x_continuous("Years since the introduction of the intervention",breaks = seq(0,8,1))+
+scale_color_brewer(type = "qual",palette = 7,name="Age group")+
+  geom_point()+
+theme_classic()+ theme(text= element_text(size = 14)) 
+
+```
+
+```{r}
+library(cowplot)
+Figure1_revision <- plot_grid(
+  Figure1SA, Figure1SB,Figure1SC,
+  labels = c("(Α) Maternal immunization","(Β) Monoclonal antibodies","(C) Live-attenuated vaccines"),label_size = 12,
+ncol = 1, align = "v"
+)
+tiff("~/Library/CloudStorage/Box-Box/aim3/RSVtransmissionmodel/plot/Figure1_revised_0817.tiff",res=300,width = 3000, height = 4000,compression = "lzw")
+Figure1_revision
+dev.off()
+```
+
+```{r}
+under2_names <- c("<2m","2-3m","4-5m","6-7m","8-9m","10-11m","1Y")
+livevac_under2 <- rowSums(Novac_Hosp[,85:96,1:7]-livevac_output[,85:96,1:7])/(sum(St[340,grep(paste(under2_names,collapse="|"),colnames(St))]))
+round(quantile(livevac_under2,c(0.5,0.025,0.975))*100000,0)
+Mat_under2 <- rowSums(Novac_Hosp[,85:96,1:7]-Mat_output[,85:96,1:7])/(sum(St[340,grep(paste(under2_names,collapse="|"),colnames(St))]))
+round(quantile(Mat_under2,c(0.5,0.025,0.975))*100000,0)
+mAb_under2 <- rowSums(Novac_Hosp[,85:96,1:7]-MAb_output[,85:96,1:7])/(sum(St[340,grep(paste(under2_names,collapse="|"),colnames(St))]))
+round(quantile(mAb_under2,c(0.5,0.025,0.975))*100000,0)
+ livevac_under2_incidence <- c()
+ for (i in 1:108) {
+  livevac_under2_incidence[i] <-  sum(livevac_mean_by_age[i,1:7])/(sum(St[i,grep(paste(under2_names,collapse="|"),colnames(St))]))*100000
+ }
+ matvac_under2_incidence <- c()
+ for (i in 1:108) {
+  matvac_under2_incidence[i] <-  sum(Mat_mean_by_age[i,1:7])/(sum(St[i,grep(paste(under2_names,collapse="|"),colnames(St))]))*100000
+ }
+ 
+  MAb_under2_incidence <- c()
+ for (i in 1:108) {
+  MAb_under2_incidence[i] <-  sum(MAb_mean_by_age[i,1:7])/(sum(St[i,grep(paste(under2_names,collapse="|"),colnames(St))]))*100000
+ }
+  
+  totalunder2_incidence <- data.frame(incidence=c(matvac_under2_incidence,MAb_under2_incidence,livevac_under2_incidence),type=rep(c("Maternal\nImmunization","Monoclonal\nantibodies","Live-attenuated\nvaccines"),each=108),month=rep(1:108,3))
+  totalunder2_incidence$type <- factor(totalunder2_incidence$type,levels = c("Maternal\nImmunization","Monoclonal\nantibodies","Live-attenuated\nvaccines")) 
+  
+  totalunder2_incidence$year <- rep(rep(0:8,each=12),3)
+  
+totalunder2_incidence_yearsum <- totalunder2_incidence %>%
+group_by(year,type) %>%
+summarise(yearincidence=sum(incidence))
+
+# The palette with black:
+cbbPalette <- c( "#009E73", "#0072B2", "#D55E00")
+  
+Figure1D <- ggplot(data=totalunder2_incidence_yearsum,aes(x = year, y=yearincidence,color=type))   +
+geom_line() +
+ylab( "RSV hospitalizations per 100000 people")+
+  ylim(c(0,1000))+
+scale_x_continuous("Years since the introduction of interventions",breaks = seq(0,8,1))+
+  geom_point()+
+  guides(
+   color = guide_legend(byrow = TRUE)
+  ) +
+  scale_colour_manual(values=cbbPalette)+
+  labs(color="Immunization\nStrategy\n")+
+theme_classic()+ theme(text= element_text(size = 14),
+                       legend.spacing.y = unit(1.0, 'cm')) 
+
+tiff("~/Library/CloudStorage/Box-Box/aim3/RSVtransmissionmodel/plot/Figure1D_revised_0817.tiff",res=300,width = 3000, height = 1500,compression = "lzw")
+Figure1D
+dev.off()
+```
