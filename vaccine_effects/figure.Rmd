@@ -1,0 +1,133 @@
+---
+title: "newfigure"
+author: "Zhe Zheng"
+date: "2/15/2022"
+output: html_document
+---
+
+```{r}
+library(tidybayes )
+library(tidyr)
+library(dplyr)
+library(ggplot2)
+novac_output <- readRDS("C:/Users/70914/Box/aim3/RSVtransmissionmodel/novac_output.rds")
+load("C:/Users/70914/Box/aim3/RSVtransmissionmodel/vac_overall_effect0408.RData")
+agep <- readRDS("C:/Users/70914/Box/aim3/RSVtransmissionmodel/agep.rds")
+```
+
+```{r}
+no_vac_incidence_plot <- as.data.frame(t(t(apply(novac_output,c(1,3),sum))/(agep*sum(St[337,]))*100000))
+no_vac_incidence_plot$iteration <- 1:nrow(no_vac_incidence_plot)
+mat_vac_incidence_total <- as.data.frame(t(t(apply(Mat_output_total,c(1,3),sum))/(agep*sum(St[337,]))*100000))
+mat_vac_incidence_total$iteration <- 1:nrow(mat_vac_incidence_total)
+
+mat_vac_incidence_direct <- as.data.frame(t(t(apply(Mat_output_direct,c(1,3),sum))/(agep*sum(St[337,]))*100000))
+mat_vac_incidence_direct$iteration <- 1:nrow(mat_vac_incidence_direct)
+
+no_vac_incidence_plot$type <- "No vaccination"
+mat_vac_incidence_total$type <- "Overall effects"
+mat_vac_incidence_direct$type <- "Direct effects"
+
+
+mat_vac_incidence_plot <- rbind(no_vac_incidence_plot,mat_vac_incidence_total,mat_vac_incidence_direct)
+mat_vac_incidence_plot <- mat_vac_incidence_plot[,-c(7:13)]
+
+mat_vac_incidence_plot_long <- gather(mat_vac_incidence_plot, age, incidence,V1:V6, factor_key=TRUE)
+mat_vac_incidence_plot_long$type <- factor(mat_vac_incidence_plot_long$type,levels = c("No vaccination","Direct effects","Overall effects"))
+df=mat_vac_incidence_plot_long
+
+
+ df2 <- df %>%
+  group_by(age,type) %>%
+  mean_qi(incidence, .width = .95)
+
+Figure_4_mat <-  ggplot(data=df2) +
+  geom_line(aes(x = rep(seq(1,11,2),each=3),y = incidence,color=type))+
+  geom_ribbon(aes( x = rep(seq(1,11,2),each=3),ymin = .lower, ymax = .upper,fill=type),alpha = 0.1) + scale_x_continuous(name="Infant Age (months)", breaks=seq(1,11,2)) +
+  scale_y_continuous(name="RSV hospitalizations per 100000 people", breaks=seq(0,4000,500),limits=c(0,4200))+
+    scale_color_brewer(palette = "Dark2",name="Type")+
+  scale_fill_brewer(palette = "Dark2",name="Type")+
+    theme_classic()
+```
+
+```{r}
+no_vac_incidence_plot <- as.data.frame(t(t(apply(novac_output,c(1,3),sum))/(agep*sum(St[337,]))*100000))
+no_vac_incidence_plot$iteration <- 1:nrow(no_vac_incidence_plot)
+
+
+live_vac_incidence_total <- as.data.frame(t(t(apply(livevac_output_total,c(1,3),sum))/(agep*sum(St[337,]))*100000))
+live_vac_incidence_total$iteration <- 1:nrow(live_vac_incidence_total)
+
+live_vac_incidence_direct <- as.data.frame(t(t(apply(livevac_output_direct,c(1,3),sum))/(agep*sum(St[337,]))*100000))
+live_vac_incidence_direct$iteration <- 1:nrow(live_vac_incidence_direct)
+
+no_vac_incidence_plot$type <- "No vaccination"
+live_vac_incidence_total$type <- "Overall effects"
+live_vac_incidence_direct$type <- "Direct effects"
+
+live_vac_incidence_plot <- rbind(no_vac_incidence_plot,live_vac_incidence_total,live_vac_incidence_direct)#
+live_vac_incidence_plot <- live_vac_incidence_plot[,-c(7:13)]
+
+live_vac_incidence_plot_long <- gather(live_vac_incidence_plot, age, incidence,V1:V6, factor_key=TRUE)
+live_vac_incidence_plot_long$type <- factor(live_vac_incidence_plot_long$type,levels = c("No vaccination","Direct effects","Overall effects"))
+df=live_vac_incidence_plot_long
+
+
+ df2 <- df %>%
+  group_by(age,type) %>%
+  mean_qi(incidence, .width = .95)
+
+Figure_4_live <-  ggplot(data=df2) +
+  geom_line(aes(x = rep(seq(1,11,2),each=3),y = incidence,color=type))+
+  geom_ribbon(aes( x = rep(seq(1,11,2),each=3),ymin = .lower, ymax = .upper,fill=type),alpha = 0.1) + scale_x_continuous(name="Infant Age (months)", breaks=seq(1,11,2)) +
+  scale_y_continuous(name="RSV hospitalizations per 100000 people", breaks=seq(0,4000,500),limits=c(0,4200))+
+  scale_color_brewer(palette = "Dark2",name="Type")+
+  scale_fill_brewer(palette = "Dark2",name="Type")+
+    theme_classic()
+```
+
+```{r}
+mab_incidence_total <- as.data.frame(t(t(apply(mab_output_total,c(1,3),sum))/(agep*sum(St[337,]))*100000))
+mab_incidence_total$iteration <- 1:nrow(mab_incidence_total)
+
+mab_incidence_direct <- as.data.frame(t(t(apply(mab_output_direct,c(1,3),sum))/(agep*sum(St[337,]))*100000))
+mab_incidence_direct$iteration <- 1:nrow(mab_incidence_direct)
+
+mab_incidence_total$type <- "Overall effects"
+mab_incidence_direct$type <- "Direct effects"
+
+mab_incidence_plot <- rbind(no_vac_incidence_plot,mab_incidence_total,mab_incidence_direct)
+mab_incidence_plot <- mab_incidence_plot[,-c(7:13)]
+
+mab_incidence_plot_long <- gather(mab_incidence_plot, age, incidence,V1:V6, factor_key=TRUE)
+mab_incidence_plot_long$type <- factor(mab_incidence_plot_long$type,levels = c("No vaccination","Direct effects","Overall effects"))
+df=mab_incidence_plot_long
+
+
+ df2 <- df %>%
+  group_by(age,type) %>%
+  mean_qi(incidence, .width = .95)
+
+Figure_4_mab <-  ggplot(data=df2) +
+  geom_line(aes(x = rep(seq(1,11,2),each=3),y = incidence,color=type))+
+  geom_ribbon(aes( x = rep(seq(1,11,2),each=3),ymin = .lower, ymax = .upper,fill=type),alpha = 0.1) + scale_x_continuous(name="Infant Age (months)", breaks=seq(1,11,2)) +
+  scale_y_continuous(name="RSV hospitalizations per 100000 people", breaks=seq(0,4000,500),limits=c(0,4200))+
+    scale_color_brewer(palette = "Dark2",name="Type")+
+  scale_fill_brewer(palette = "Dark2",name="Type")+
+    theme_classic()
+```
+
+
+```{r}
+library(cowplot)
+Figure3 <- plot_grid(
+  Figure_4_mat, Figure_4_mab,Figure_4_live,
+  labels = c("(Α) Maternal immunization","(Β) Monoclonal antibodies","(C) Live-attenuated vaccines"),label_size = 12,
+ ncol = 1
+)
+
+tiff("~/Library/CloudStorage/Box-Box/aim3/RSVtransmissionmodel/plot/Figure3_revised_0817.tiff",res=300,width = 2500, height = 4000,compression = "lzw")
+Figure3
+dev.off()
+
+```
